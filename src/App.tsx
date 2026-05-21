@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const finalTranscriptRef = useRef('');
   const isManuallyStopping = useRef(false);
 
   // Load History & Voices
@@ -44,8 +45,6 @@ const App: React.FC = () => {
 
     const loadVoices = () => {
       const voices = synthRef.current.getVoices();
-      
-      // Exhaustive Male Voice Search (targeting PC & Mobile)
       const maleVoice = voices.find(v => 
         (v.name.includes('Male') || v.name.includes('David') || v.name.includes('James') || 
          v.name.includes('Guy') || v.name.includes('Stefan') || v.name.includes('George') ||
@@ -67,43 +66,45 @@ const App: React.FC = () => {
     localStorage.setItem('karthik_chat_history', JSON.stringify(history));
   }, [history]);
 
-  // STT Setup
+  // STT Setup - Optimized for stability (non-continuous with auto-restart)
   useEffect(() => {
     if (webkitSpeechRecognition) {
       recognitionRef.current = new webkitSpeechRecognition();
-      recognitionRef.current.continuous = true;
+      recognitionRef.current.continuous = false; // Changed to false for better stability
       recognitionRef.current.interimResults = true;
       recognitionRef.current.lang = 'en-US';
 
       recognitionRef.current.onresult = (event: any) => {
-        let final = '';
-        let interim = '';
+        let text = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) final += event.results[i][0].transcript;
-          else interim += event.results[i][0].transcript;
+          text += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+             finalTranscriptRef.current += event.results[i][0].transcript + ' ';
+          }
         }
-        setTranscript(final || interim);
+        setTranscript(finalTranscriptRef.current + (event.results[event.results.length-1].isFinal ? '' : event.results[event.results.length-1][0].transcript));
       };
 
       recognitionRef.current.onend = () => {
-        // Less aggressive restart to avoid network errors
+        // Safe auto-restart for "Always On" feel without network spam
         if (isListening && !isManuallyStopping.current) {
           setTimeout(() => {
             if (isListening && !isManuallyStopping.current) {
               try { recognitionRef.current.start(); } catch (e) {}
             }
-          }, 100);
+          }, 300); // 300ms gap gives the browser time to clear the connection
         }
       };
 
       recognitionRef.current.onerror = (event: any) => {
-        console.error('Mic Error', event.error);
+        console.error('STT Error:', event.error);
         if (event.error === 'network') {
-          // Don't show error if we're just restarting
-          if (!isManuallyStopping.current) return;
-        }
-        if (event.error !== 'no-speech') {
-          setError(`Mic: ${event.error}`);
+          // If network error, stop listening and show a clear message
+          setIsListening(false);
+          setError('Mic: Connection lost. Please check your internet and try again.');
+        } else if (event.error === 'not-allowed') {
+          setIsListening(false);
+          setError('Mic: Permission denied.');
         }
       };
     }
@@ -121,10 +122,12 @@ const App: React.FC = () => {
       setIsListening(false);
       const text = transcript.trim();
       if (text) handleSendMessage(text);
+      finalTranscriptRef.current = '';
     } else {
       isManuallyStopping.current = false;
       setError(null);
       setTranscript('');
+      finalTranscriptRef.current = '';
       try {
         recognitionRef.current?.start();
         setIsListening(true);
@@ -245,7 +248,7 @@ const App: React.FC = () => {
                   <MessageSquare size={16} className="shrink-0 opacity-50" />
                   <span className="text-xs truncate">{s.title}</span>
                 </div>
-                <button onClick={(e) => deleteSession(e, s.id)} className="absolute right-2 p-2 hover:text-red-400"><Trash2 size={14} /></button>
+                <button onClick={(e) => deleteSession(e, s.id)} className="absolute right-2 p-2 hover:text-red-400 transition-all"><Trash2 size={14} /></button>
               </div>
             ))}
           </div>
@@ -255,7 +258,7 @@ const App: React.FC = () => {
       <div className="flex-1 flex flex-col w-full h-full relative">
         <header className="h-16 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950/20 backdrop-blur-md z-30">
           <div className="flex items-center space-x-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg transition-all"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white uppercase tracking-tighter">Karthik AI</h1>
           </div>
           <button onClick={clearChat} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
@@ -265,10 +268,10 @@ const App: React.FC = () => {
           <div className="w-full max-w-4xl space-y-6">
             {currentChat.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl"><Bot size={32} className="text-white" /></div>
+                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
-                  <p className="text-slate-500 text-sm mt-2 max-w-xs mx-auto">Ask me about my journey, superpowers, and growth areas.</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's Voice Proxy</h2>
+                  <p className="text-slate-500 text-sm mt-2">I am ready. Tap the mic and ask me anything.</p>
                 </div>
               </div>
             )}
@@ -276,10 +279,10 @@ const App: React.FC = () => {
             {currentChat.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex max-w-[90%] sm:max-w-[80%] items-start space-x-3 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-slate-800'}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
@@ -290,7 +293,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium italic tracking-widest">Thinking...</span>
+                  <span className="text-xs text-slate-500 font-medium">Processing...</span>
                 </div>
               </div>
             )}
@@ -303,7 +306,7 @@ const App: React.FC = () => {
             <div className="w-full max-w-md p-3 bg-slate-900 border border-slate-800 rounded-xl mb-4 text-center animate-in slide-in-from-bottom-2">
                <p className="text-xs text-indigo-400 font-bold mb-1 uppercase tracking-widest flex items-center justify-center space-x-2">
                  <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                 <span>Listening Continuously</span>
+                 <span>Always Listening</span>
                </p>
                <p className="text-sm text-slate-300 italic">{transcript || "..."}</p>
             </div>
