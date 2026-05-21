@@ -127,7 +127,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Use OpenAI Neural TTS (Non-blocking)
+      // Use Ultra-Fast Instant Edge-TTS
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -143,16 +143,11 @@ const App: React.FC = () => {
         body: JSON.stringify({ text }),
       });
       
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'TTS failed');
-      }
-
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
+      const data = await response.json();
       
-      if (audioRef.current) {
-        audioRef.current.src = audioUrl;
+      if (data.audioUrl && audioRef.current) {
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.load(); // Force immediate load
         audioRef.current.play().catch(err => {
           console.warn("Autoplay blocked, showing manual play button.", err);
           setShowPlayButton(true);
@@ -160,7 +155,6 @@ const App: React.FC = () => {
       }
     } catch (e: any) {
       console.error('Speech failed', e);
-      setError('Voice Error: ' + e.message);
     }
   };
 
@@ -243,8 +237,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Premium OpenAI Neural Voice Integration</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
+                  <p className="text-slate-500 text-sm mt-2">Ultra-Fast Voice & Premium Recognition</p>
                 </div>
               </div>
             )}
@@ -255,8 +249,8 @@ const App: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
-                    <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                    <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap font-medium">{msg.content}</p>
                   </div>
                 </div>
               </div>
@@ -266,7 +260,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium italic">Thinking...</span>
+                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase italic">Thinking</span>
                 </div>
               </div>
             )}
@@ -292,11 +286,11 @@ const App: React.FC = () => {
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Speak now. I'll hear everything you say.</p>
+               <p className="text-sm text-slate-400 italic leading-relaxed">Speak naturally. Tap the button when you finish speaking.</p>
             </div>
           )}
 
-          <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
+          <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
             {isListening ? <MicOff size={32} className="text-white" /> : <Mic size={32} className="text-white" />}
           </button>
           

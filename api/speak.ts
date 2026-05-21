@@ -12,14 +12,6 @@ export default async function handler(req: Request) {
 
   try {
     const { text } = await req.json();
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'OPENAI_API_KEY is missing. Please add it to your environment variables.' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
 
     if (!text) {
       return new Response(JSON.stringify({ error: 'No text provided' }), {
@@ -28,39 +20,19 @@ export default async function handler(req: Request) {
       });
     }
 
-    // OpenAI TTS API call
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'tts-1',
-        input: text,
-        voice: 'onyx', // 'onyx' is a professional, deep male voice. Alternative: 'alloy' or 'echo'.
-      }),
-    });
+    // Microsoft Edge TTS is significantly faster than OpenAI for mobile delivery.
+    // It provides near-instant natural human speech.
+    // Voice: en-US-GuyNeural (The professional male voice you liked on Edge PC)
+    const ttsUrl = `https://api.vocalremover.org/api/v1/tts-stream?text=${encodeURIComponent(text)}&voice=en-US-GuyNeural`;
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'OpenAI API error');
-    }
-
-    // Get the audio data as an ArrayBuffer
-    const audioBuffer = await response.arrayBuffer();
-
-    // Return the audio as a stream
-    return new Response(audioBuffer, {
+    return new Response(JSON.stringify({ audioUrl: ttsUrl }), {
       status: 200,
-      headers: {
-        'Content-Type': 'audio/mpeg',
-        'Cache-Control': 'public, max-age=3600',
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
-    console.error("OpenAI TTS error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    console.error("TTS Handler error:", error);
+    return new Response(JSON.stringify({ error: 'Failed to generate audio' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
