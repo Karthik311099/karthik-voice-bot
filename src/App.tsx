@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, ChevronLeft } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, History as HistoryIcon } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -288,7 +288,7 @@ const App: React.FC = () => {
              <div className="hidden sm:flex items-center space-x-2 text-slate-500 text-xs font-bold uppercase tracking-[0.2em]">
                {activeSessionId ? (
                  <>
-                   <History size={14} className="text-indigo-500" />
+                   <HistoryIcon size={20} className="text-indigo-400" />
                    <span>Viewing Record</span>
                  </>
                ) : (
