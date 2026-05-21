@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, History as HistoryIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, History as HistoryIcon } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default open on PC
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Collapsed by default
 
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
@@ -43,14 +43,12 @@ const App: React.FC = () => {
 
     const loadVoices = () => {
       const voices = synthRef.current.getVoices();
-      // Expanded male voice search for cross-platform consistency
       const voice = voices.find(v => 
         (v.name.includes('Male') || v.name.includes('David') || v.name.includes('James') || v.name.includes('Guy') || v.name.includes('Stefan')) && 
         (v.lang.startsWith('en'))
       ) || voices.find(v => v.name.includes('Google US English') && v.name.includes('Male')) 
         || voices.find(v => v.lang.startsWith('en-US')) 
         || voices[0];
-      
       if (voice) setSelectedVoice(voice);
     };
 
@@ -87,9 +85,6 @@ const App: React.FC = () => {
         }
       };
     }
-    
-    // Close sidebar by default on small screens
-    if (window.innerWidth < 1024) setIsSidebarOpen(false);
   }, []);
 
   useEffect(() => {
@@ -104,7 +99,7 @@ const App: React.FC = () => {
     setTranscript('');
     finalTranscriptRef.current = '';
     setError(null);
-    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+    setIsSidebarOpen(false);
   };
 
   const saveCurrentToHistory = () => {
@@ -113,7 +108,7 @@ const App: React.FC = () => {
     if (!existing) {
       const newSession: ChatSession = {
         id: Date.now().toString(),
-        title: currentChat[0].content.slice(0, 35) + '...',
+        title: currentChat[0].content.slice(0, 40) + '...',
         messages: currentChat,
         timestamp: Date.now()
       };
@@ -129,7 +124,7 @@ const App: React.FC = () => {
     if (currentChat.length > 0 && !activeSessionId) saveCurrentToHistory();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
-    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+    setIsSidebarOpen(false);
   };
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
@@ -140,6 +135,13 @@ const App: React.FC = () => {
       setCurrentChat([]);
       setActiveSessionId(null);
     }
+  };
+
+  const clearCurrentChat = () => {
+    synthRef.current.cancel();
+    setCurrentChat([]);
+    setTranscript('');
+    finalTranscriptRef.current = '';
   };
 
   const toggleListening = () => {
@@ -188,7 +190,7 @@ const App: React.FC = () => {
       } else {
         const newSession: ChatSession = {
           id: Date.now().toString(),
-          title: text.slice(0, 35) + '...',
+          title: text.slice(0, 40) + '...',
           messages: updatedMessages,
           timestamp: Date.now()
         };
@@ -213,132 +215,125 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-200 font-sans flex relative overflow-hidden">
+    <div className="h-screen w-full bg-[#020617] text-slate-200 font-sans flex relative overflow-hidden text-lg">
       
-      {/* Sidebar Overlay (Mobile) */}
+      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-black/70 backdrop-blur-md z-40"
           onClick={() => setIsSidebarOpen(false)}
         ></div>
       )}
 
-      {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-80 bg-slate-900 border-r border-slate-800 transition-all duration-300 ease-in-out lg:relative ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:w-0 lg:border-none'}`}>
-        <div className="flex flex-col h-full w-80">
-          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="text-xl font-black tracking-tighter text-white">Chat History</h2>
-            <button onClick={() => setIsSidebarOpen(false)} className="p-2 text-slate-500 hover:text-white bg-slate-800 rounded-lg">
-              <X size={20} />
+      {/* Sidebar (Full screen on mobile, drawer on PC) */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-96 bg-slate-900 border-r border-slate-800 transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex flex-col h-full">
+          <div className="p-8 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="text-3xl font-black tracking-tighter text-white">History</h2>
+            <button onClick={() => setIsSidebarOpen(false)} className="p-3 text-slate-500 hover:text-white bg-slate-800 rounded-2xl">
+              <X size={28} />
             </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
             <button 
               onClick={startNewChat}
-              className="w-full flex items-center justify-center space-x-2 py-4 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl transition-all shadow-xl shadow-indigo-500/10 font-bold mb-6"
+              className="w-full flex items-center justify-center space-x-3 py-5 px-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-[2rem] transition-all shadow-2xl shadow-indigo-500/20 font-black text-xl mb-10"
             >
-              <Plus size={20} />
+              <Plus size={24} />
               <span>New Conversation</span>
             </button>
 
             {history.length === 0 ? (
-              <div className="text-center py-20 text-slate-600 text-sm italic">No history yet</div>
+              <div className="text-center py-20 text-slate-600 italic">No saved chats</div>
             ) : (
               history.map((session) => (
                 <div 
                   key={session.id} 
                   onClick={() => loadSession(session)}
-                  className={`group relative flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer ${activeSessionId === session.id ? 'bg-indigo-600/10 border-indigo-500/50 text-indigo-400' : 'bg-slate-800/20 border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'}`}
+                  className={`group relative flex items-center justify-between p-6 rounded-[1.5rem] border transition-all cursor-pointer ${activeSessionId === session.id ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-400' : 'bg-slate-800/30 border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'}`}
                 >
-                  <div className="flex items-center space-x-3 overflow-hidden pr-8">
-                    <MessageSquare size={16} className="shrink-0 opacity-60" />
-                    <span className="text-xs truncate font-semibold">{session.title}</span>
+                  <div className="flex items-center space-x-4 overflow-hidden pr-10">
+                    <MessageSquare size={20} className="shrink-0 opacity-60" />
+                    <span className="text-sm truncate font-bold">{session.title}</span>
                   </div>
                   <button 
                     onClick={(e) => deleteSession(e, session.id)}
-                    className="absolute right-3 p-2 lg:opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 rounded-xl transition-all text-slate-500"
+                    className="absolute right-4 p-3 hover:bg-red-500/20 hover:text-red-400 rounded-xl transition-all text-slate-600"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={20} />
                   </button>
                 </div>
               ))
             )}
           </div>
-          
-          <div className="p-6 border-t border-slate-800 bg-slate-900/50">
-             <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-xs font-black shadow-lg shadow-indigo-500/20">KM</div>
-                <div>
-                  <p className="text-xs font-black text-white">Karthik Murugesan</p>
-                  <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Candidate</p>
-                </div>
-             </div>
-          </div>
         </div>
       </aside>
 
-      {/* Main Panel */}
-      <div className="flex-1 flex flex-col relative min-w-0 bg-[#020617]">
+      {/* Main Panel (Always Full Screen) */}
+      <div className="flex-1 flex flex-col relative w-full h-full bg-[#020617]">
         
         {/* Top Header */}
-        <header className="h-20 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-950/20 backdrop-blur-2xl z-30">
-           <div className="flex items-center space-x-4">
-             {!isSidebarOpen && (
-               <button onClick={() => setIsSidebarOpen(true)} className="p-3 text-slate-400 hover:text-white bg-slate-900 rounded-xl transition-all">
-                 <Menu size={24} />
-               </button>
-             )}
-             <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-indigo-600 rounded-lg lg:hidden flex items-center justify-center">
-                  <Bot size={20} className="text-white" />
+        <header className="h-24 border-b border-slate-800/50 flex items-center justify-between px-8 bg-slate-950/20 backdrop-blur-3xl z-30">
+           <div className="flex items-center space-x-6">
+             <button onClick={() => setIsSidebarOpen(true)} className="p-4 text-slate-400 hover:text-white bg-slate-900/50 rounded-2xl transition-all border border-slate-800">
+               <Menu size={32} />
+             </button>
+             <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-2xl shadow-indigo-500/20">
+                  <Bot size={28} className="text-white" />
                 </div>
-                <h1 className="text-xl font-black text-white lg:text-slate-400">Karthik AI</h1>
+                <h1 className="text-3xl font-black text-white tracking-tighter">Karthik AI</h1>
              </div>
            </div>
 
            <div className="flex items-center space-x-4">
               <button 
-                onClick={() => setCurrentChat([])}
-                className="flex items-center space-x-2 py-2 px-4 text-xs font-bold text-slate-500 hover:text-red-400 transition-colors bg-slate-900/50 rounded-lg border border-slate-800"
+                onClick={clearCurrentChat}
+                className="flex items-center space-x-3 py-3 px-6 text-sm font-black text-slate-500 hover:text-red-400 transition-colors bg-slate-900/30 rounded-xl border border-slate-800"
               >
-                <Trash2 size={16} />
-                <span className="hidden sm:inline">Clear Chat</span>
+                <Trash2 size={20} />
+                <span className="hidden sm:inline uppercase tracking-widest">Reset Chat</span>
               </button>
            </div>
         </header>
 
-        {/* Chat Content (Centered) */}
-        <div className="flex-1 overflow-hidden flex flex-col items-center">
-          <div className="w-full max-w-4xl h-full flex flex-col items-center">
+        {/* Chat Content */}
+        <div className="flex-1 overflow-hidden flex flex-col items-center relative">
+          
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-indigo-500/5 blur-[180px] rounded-full"></div>
+          </div>
+
+          <div className="w-full max-w-5xl h-full flex flex-col relative z-10">
             
-            <main className="w-full flex-1 overflow-y-auto px-6 py-10 space-y-10 scrollbar-hide">
+            <main className="flex-1 overflow-y-auto px-8 py-12 space-y-12 scrollbar-hide">
               {currentChat.length === 0 && !isLoading && (
-                <div className="flex flex-col items-center justify-center h-full text-center space-y-10 animate-in fade-in duration-1000">
+                <div className="flex flex-col items-center justify-center h-full text-center space-y-12 animate-in fade-in duration-1000">
                   <div className="relative">
-                    <div className="absolute inset-0 bg-indigo-600 blur-[120px] opacity-10 animate-pulse"></div>
-                    <div className="w-36 h-36 bg-slate-900 border border-slate-800 rounded-[3.5rem] flex items-center justify-center shadow-2xl relative">
-                       <Bot size={72} className="text-indigo-500" />
+                    <div className="absolute inset-0 bg-indigo-600 blur-[120px] opacity-20 animate-pulse"></div>
+                    <div className="w-44 h-44 bg-slate-900 border-2 border-slate-800 rounded-[4rem] flex items-center justify-center shadow-[0_40px_100px_rgba(0,0,0,0.5)] relative">
+                       <Bot size={80} className="text-indigo-500" />
                     </div>
                   </div>
-                  <div className="space-y-4">
-                    <h2 className="text-5xl font-black text-white tracking-tighter sm:text-6xl">Let's talk.</h2>
-                    <p className="text-slate-500 text-lg max-w-md mx-auto leading-relaxed">
-                      I'm Karthik's voice proxy. Ask me anything about his skills, projects, or background.
+                  <div className="space-y-6">
+                    <h2 className="text-6xl sm:text-7xl font-black text-white tracking-tighter">I'm Listening.</h2>
+                    <p className="text-slate-500 text-xl max-w-2xl mx-auto leading-relaxed font-medium">
+                      Ask me anything. I know Karthik's background, skills, and goals.
                     </p>
                   </div>
                 </div>
               )}
 
-              <div className="w-full max-w-3xl mx-auto space-y-10">
+              <div className="w-full max-w-4xl mx-auto space-y-12">
                 {currentChat.map((msg, index) => (
-                  <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-6 duration-500`}>
-                    <div className={`flex max-w-[90%] sm:max-w-[85%] items-start space-x-5 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${msg.role === 'user' ? 'bg-indigo-600 border-indigo-400 shadow-xl shadow-indigo-600/20' : 'bg-slate-900 border-slate-800 shadow-2xl'}`}>
-                        {msg.role === 'user' ? <User size={20} className="text-white" /> : <Bot size={20} className="text-indigo-400" />}
+                  <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-8 duration-500`}>
+                    <div className={`flex max-w-[95%] sm:max-w-[85%] items-start space-x-6 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                      <div className={`w-12 h-12 rounded-[1.25rem] flex items-center justify-center shrink-0 border ${msg.role === 'user' ? 'bg-indigo-600 border-indigo-400 shadow-2xl shadow-indigo-600/30' : 'bg-slate-900 border-slate-800 shadow-2xl'}`}>
+                        {msg.role === 'user' ? <User size={24} className="text-white" /> : <Bot size={24} className="text-indigo-400" />}
                       </div>
-                      <div className={`p-6 rounded-3xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-2xl shadow-indigo-600/10' : 'bg-slate-900 text-slate-200 rounded-tl-none border border-slate-800 shadow-2xl'}`}>
-                        <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                      <div className={`p-8 rounded-[2.5rem] ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-2xl shadow-indigo-600/20' : 'bg-slate-900 text-slate-100 rounded-tl-none border border-slate-800 shadow-[0_20px_60px_rgba(0,0,0,0.4)]'}`}>
+                        <p className="text-lg sm:text-xl leading-relaxed whitespace-pre-wrap font-medium">{msg.content}</p>
                       </div>
                     </div>
                   </div>
@@ -346,12 +341,13 @@ const App: React.FC = () => {
 
                 {isLoading && (
                   <div className="flex justify-start">
-                    <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-3xl rounded-tl-none border border-slate-800 flex items-center space-x-4 shadow-2xl">
-                      <div className="flex space-x-2">
-                        <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-bounce"></div>
-                        <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-.3s]"></div>
-                        <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-.5s]"></div>
+                    <div className="bg-slate-900/60 backdrop-blur-2xl p-8 rounded-[2.5rem] rounded-tl-none border border-slate-800 flex items-center space-x-6 shadow-2xl">
+                      <div className="flex space-x-3">
+                        <div className="w-3 h-3 bg-indigo-500 rounded-full animate-bounce"></div>
+                        <div className="w-3 h-3 bg-indigo-500 rounded-full animate-bounce [animation-delay:-.3s]"></div>
+                        <div className="w-3 h-3 bg-indigo-500 rounded-full animate-bounce [animation-delay:-.5s]"></div>
                       </div>
+                      <span className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">AI Thinking</span>
                     </div>
                   </div>
                 )}
@@ -359,43 +355,43 @@ const App: React.FC = () => {
               </div>
             </main>
 
-            {/* Input Section */}
-            <div className="w-full px-6 py-10 sm:py-16 flex flex-col items-center relative z-20">
+            {/* Bottom Controls */}
+            <div className="px-8 py-12 sm:py-20 flex flex-col items-center relative z-40 bg-gradient-to-t from-[#020617] via-[#020617] to-transparent">
                
                {isListening && (
-                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full w-full max-w-xl px-6">
-                    <div className="bg-slate-900/95 backdrop-blur-3xl border border-slate-800 p-8 rounded-[3rem] shadow-[0_40px_120px_rgba(0,0,0,0.9)] text-center space-y-6 animate-in slide-in-from-bottom-12 duration-500">
-                       <div className="flex items-center justify-center space-x-3">
-                         {[...Array(15)].map((_, i) => (
-                           <div key={i} className="w-1.5 bg-indigo-500 rounded-full animate-shimmer" style={{ height: `${Math.random() * 40 + 10}px`, animationDelay: `${i * 0.05}s` }}></div>
+                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full w-full max-w-3xl px-8 pb-10">
+                    <div className="bg-slate-900/95 backdrop-blur-3xl border-2 border-slate-800 p-10 rounded-[4rem] shadow-[0_50px_150px_rgba(0,0,0,1)] text-center space-y-8 animate-in slide-in-from-bottom-12 duration-500">
+                       <div className="flex items-center justify-center space-x-4">
+                         {[...Array(20)].map((_, i) => (
+                           <div key={i} className="w-1.5 bg-indigo-500 rounded-full animate-shimmer" style={{ height: `${Math.random() * 50 + 20}px`, animationDelay: `${i * 0.05}s` }}></div>
                          ))}
                        </div>
-                       <p className="text-indigo-400 text-lg font-black italic tracking-tight leading-snug">
-                         {transcript || "Listening carefully..."}
+                       <p className="text-indigo-400 text-2xl font-black italic tracking-tight leading-snug">
+                         {transcript || "Speak clearly..."}
                        </p>
                     </div>
                  </div>
                )}
 
-               <div className="flex flex-col items-center space-y-6">
+               <div className="flex flex-col items-center space-y-8">
                   <button
                     onClick={toggleListening}
                     disabled={isLoading}
-                    className={`w-36 h-36 rounded-[4rem] flex items-center justify-center transition-all duration-700 transform active:scale-90 ${
+                    className={`w-40 h-40 rounded-[5rem] flex items-center justify-center transition-all duration-700 transform active:scale-90 ${
                       isListening 
-                        ? 'bg-red-500 shadow-[0_0_120px_rgba(239,68,68,0.4)] scale-110' 
-                        : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_120px_rgba(79,70,229,0.4)] hover:scale-105'
+                        ? 'bg-red-500 shadow-[0_0_150px_rgba(239,68,68,0.5)] scale-110' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_150px_rgba(79,70,229,0.4)] hover:scale-105'
                     } disabled:opacity-50 disabled:grayscale`}
                   >
-                    {isListening ? <MicOff size={64} className="text-white" /> : <Mic size={64} className="text-white" />}
-                    {isListening && <div className="absolute inset-0 rounded-[4rem] border-8 border-red-500/10 animate-ping"></div>}
+                    {isListening ? <MicOff size={80} className="text-white" /> : <Mic size={80} className="text-white" />}
+                    {isListening && <div className="absolute inset-0 rounded-[5rem] border-[12px] border-red-500/10 animate-ping"></div>}
                   </button>
 
-                  <div className="text-center space-y-2">
-                    <p className="text-[12px] font-black uppercase tracking-[0.8em] text-slate-700">
-                      {isListening ? 'Stop' : 'Talk'}
+                  <div className="text-center space-y-3">
+                    <p className="text-sm font-black uppercase tracking-[1em] text-slate-700">
+                      {isListening ? 'Stop Recording' : 'Push to Talk'}
                     </p>
-                    {error && <p className="text-xs text-red-500 font-bold">{error}</p>}
+                    {error && <p className="text-sm text-red-500 font-black">{error}</p>}
                   </div>
                </div>
             </div>
@@ -404,8 +400,8 @@ const App: React.FC = () => {
       </div>
 
       <style>{`
-        @keyframes shimmer { 0%, 100% { height: 12px; opacity: 0.3; } 50% { height: 48px; opacity: 1; } }
-        .animate-shimmer { animation: shimmer 1s infinite ease-in-out; }
+        @keyframes shimmer { 0%, 100% { height: 15px; opacity: 0.3; } 50% { height: 60px; opacity: 1; } }
+        .animate-shimmer { animation: shimmer 0.8s infinite ease-in-out; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
