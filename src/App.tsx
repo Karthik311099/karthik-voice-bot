@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,16 +22,20 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [canSpeak, setCanSpeak] = useState(false); // To handle mobile autoplay
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const audioRef = useRef<HTMLAudioElement>(new Audio());
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
+    
+    // Initialize audio object once
+    audioRef.current = new Audio();
+    audioRef.current.autoplay = true;
   }, []);
 
   useEffect(() => {
@@ -44,19 +48,23 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      audioRef.current.pause();
+      if (audioRef.current) audioRef.current.pause();
       setError(null);
+      setCanSpeak(true); // User gesture allows future audio play
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
+
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         await handleTranscription(audioBlob);
         stream.getTracks().forEach(track => track.stop());
       };
+
       recorder.start(1000); 
       setIsListening(true);
     } catch (err: any) {
@@ -119,7 +127,6 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Professional Voice Trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -136,13 +143,10 @@ const App: React.FC = () => {
         body: JSON.stringify({ text }),
       });
       const data = await response.json();
-      if (data.audioUrl) {
+      if (data.audioUrl && audioRef.current) {
         audioRef.current.src = data.audioUrl;
-        audioRef.current.load();
-        audioRef.current.play().catch(e => {
-          console.error("Playback blocked", e);
-          // If blocked by mobile browser, wait for next user tap
-          window.addEventListener('click', () => audioRef.current.play(), { once: true });
+        audioRef.current.play().catch(() => {
+          setCanSpeak(false); // Playback failed, need manual tap
         });
       }
     } catch (e) {
@@ -151,7 +155,7 @@ const App: React.FC = () => {
   };
 
   const startNewChat = () => {
-    audioRef.current.pause();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -159,7 +163,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    audioRef.current.pause();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -167,7 +171,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    audioRef.current.pause();
+    if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -212,7 +216,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -221,8 +225,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
-                  <p className="text-slate-500 text-sm mt-2">Enterprise-Grade Voice & STT Engine</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">AI Proxy Bot</h2>
+                  <p className="text-slate-500 text-sm mt-2">Neural Voice & Whisper Recognition</p>
                 </div>
               </div>
             )}
@@ -233,7 +237,7 @@ const App: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap font-medium">{msg.content}</p>
                   </div>
                 </div>
@@ -253,13 +257,22 @@ const App: React.FC = () => {
         </main>
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
+          
+          {/* Manual Play Fallback */}
+          {!canSpeak && currentChat.length > 0 && currentChat[currentChat.length-1].role === 'assistant' && (
+             <button onClick={() => audioRef.current?.play()} className="flex items-center space-x-2 text-indigo-400 font-bold mb-4 animate-bounce">
+                <Volume2 size={20} />
+                <span>Tap to play response</span>
+             </button>
+          )}
+
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Speak naturally. Tap the button when finished.</p>
+               <p className="text-sm text-slate-400 italic leading-relaxed">Speak naturally. Tap the button when you finish speaking.</p>
             </div>
           )}
 
