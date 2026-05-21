@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,7 +22,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showPlayButton, setShowPlayButton] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -33,7 +32,7 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Initialize audio object
+    // Initialize audio object once
     audioRef.current = new Audio();
   }, []);
 
@@ -47,9 +46,12 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      if (audioRef.current) audioRef.current.pause();
+      if (audioRef.current) {
+        audioRef.current.pause();
+        // IMPORTANT: "Prime" the audio player on user click to unlock mobile autoplay
+        audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
+      }
       setError(null);
-      setShowPlayButton(false);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
@@ -127,7 +129,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Use Ultra-Fast Instant Edge-TTS
+      // Automatic Instant Voice
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -147,10 +149,9 @@ const App: React.FC = () => {
       
       if (data.audioUrl && audioRef.current) {
         audioRef.current.src = data.audioUrl;
-        audioRef.current.load(); // Force immediate load
+        audioRef.current.load();
         audioRef.current.play().catch(err => {
-          console.warn("Autoplay blocked, showing manual play button.", err);
-          setShowPlayButton(true);
+          console.error("Autoplay failed:", err);
         });
       }
     } catch (e: any) {
@@ -164,7 +165,6 @@ const App: React.FC = () => {
     setActiveSessionId(null);
     setIsSidebarOpen(false);
     setError(null);
-    setShowPlayButton(false);
   };
 
   const loadSession = (session: ChatSession) => {
@@ -172,7 +172,6 @@ const App: React.FC = () => {
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
-    setShowPlayButton(false);
   };
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
@@ -182,7 +181,6 @@ const App: React.FC = () => {
     if (activeSessionId === id) {
       setCurrentChat([]);
       setActiveSessionId(null);
-      setShowPlayButton(false);
     }
   };
 
@@ -228,7 +226,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); setShowPlayButton(false); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -238,7 +236,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
-                  <p className="text-slate-500 text-sm mt-2">Ultra-Fast Voice & Premium Recognition</p>
+                  <p className="text-slate-500 text-sm mt-2">Instant Voice & Premium Recognition</p>
                 </div>
               </div>
             )}
@@ -270,16 +268,6 @@ const App: React.FC = () => {
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
           
-          {showPlayButton && (
-            <button 
-              onClick={() => { if (audioRef.current) audioRef.current.play(); setShowPlayButton(false); }}
-              className="flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-full mb-6 animate-bounce shadow-2xl font-bold"
-            >
-              <Volume2 size={20} />
-              <span>Hear Response</span>
-            </button>
-          )}
-
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
