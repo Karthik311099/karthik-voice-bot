@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, User, Bot, Loader2 } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2 } from 'lucide-react';
 
 // --- Types for Web Speech API ---
 interface IWindow extends Window {
