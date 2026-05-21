@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,49 +22,19 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [needsGesture, setNeedsGesture] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Hardened Male Voice Selection (Browser Native)
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-
-    const findBestMaleVoice = () => {
-      const voices = synthRef.current.getVoices();
-      
-      // LOG VOICES TO CONSOLE (Helpful for debugging device-specific voices)
-      // console.log("Available Voices:", voices.map(v => v.name));
-
-      // Strategy: Hunt for "Natural" or "Google" voices first as they are much higher quality (less robotic)
-      const maleVoice = 
-        // 1. Premium "Natural" or "Neural" voices (Edge/Chrome/Safari)
-        voices.find(v => v.name.toLowerCase().includes('natural') && v.name.toLowerCase().includes('male')) ||
-        voices.find(v => v.name.includes('Google US English') || v.name.includes('Google UK English Male')) ||
-        // 2. Android Specific (High Quality)
-        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local'))) || 
-        // 3. iOS Specific (Daniel/Arthur are quite natural)
-        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron'))) || 
-        // 4. Windows Desktop Specific
-        voices.find(v => (v.name.includes('David') || v.name.includes('James'))) || 
-        // 5. Keyword fallbacks
-        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
-        voices.find(v => v.lang.startsWith('en-US')) ||
-        voices[0];
-      
-      if (maleVoice) {
-        setSelectedVoice(maleVoice);
-      }
-    };
-
-    findBestMaleVoice();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = findBestMaleVoice;
-    }
+    
+    // Initialize audio player
+    audioPlayerRef.current = new Audio();
   }, []);
 
   useEffect(() => {
@@ -77,19 +47,27 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      synthRef.current.cancel();
+      if (audioPlayerRef.current) audioPlayerRef.current.pause();
       setError(null);
+      
+      // On mobile, we "prime" the audio player during a user click
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.play().then(() => audioPlayerRef.current?.pause()).catch(() => {});
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
+      
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         await handleTranscription(audioBlob);
         stream.getTracks().forEach(track => track.stop());
       };
+      
       recorder.start(1000); 
       setIsListening(true);
     } catch (err: any) {
@@ -151,7 +129,9 @@ const App: React.FC = () => {
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
       }
-      speak(botMessage);
+      
+      // Trigger Professional Neural Voice
+      await speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
     } finally {
@@ -159,25 +139,29 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = (text: string) => {
-    synthRef.current.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
+  const speak = async (text: string) => {
+    try {
+      const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json();
+      
+      if (data.audioUrl && audioPlayerRef.current) {
+        audioPlayerRef.current.src = data.audioUrl;
+        audioPlayerRef.current.play().catch(err => {
+          console.warn("Autoplay blocked, showing manual play button.", err);
+          setNeedsGesture(true);
+        });
+      }
+    } catch (err) {
+      console.error("Speech generation failed:", err);
     }
-    
-    // HUMAN-LIKE TUNING:
-    // Slightly slower rate (0.9-0.95) often sounds more natural/thoughtful
-    // Standard pitch (1.0) or slightly lower (0.98) removes robot "ringing"
-    utterance.rate = 0.95; 
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-    
-    synthRef.current.speak(utterance);
   };
 
   const startNewChat = () => {
-    synthRef.current.cancel();
+    if (audioPlayerRef.current) audioPlayerRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -185,7 +169,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    synthRef.current.cancel();
+    if (audioPlayerRef.current) audioPlayerRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -193,7 +177,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    synthRef.current.cancel();
+    if (audioPlayerRef.current) audioPlayerRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -243,7 +227,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { synthRef.current.cancel(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioPlayerRef.current) audioPlayerRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -253,7 +237,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Professional STT & Improved Natural Voice</p>
+                  <p className="text-slate-500 text-sm mt-2">Neural Voice & Whisper Recognition</p>
                 </div>
               </div>
             )}
@@ -284,6 +268,18 @@ const App: React.FC = () => {
         </main>
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
+          
+          {/* Mobile Autoplay Fallback Button */}
+          {needsGesture && (
+            <button 
+              onClick={() => { audioPlayerRef.current?.play(); setNeedsGesture(false); }}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-full mb-4 animate-bounce shadow-lg text-sm font-bold"
+            >
+              <Volume2 size={16} />
+              <span>Tap to hear response</span>
+            </button>
+          )}
+
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
