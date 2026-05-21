@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Hardened Voice Search
+  // Load History & Hardened Male Voice Selection
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
@@ -37,19 +37,26 @@ const App: React.FC = () => {
     const findBestMaleVoice = () => {
       const voices = synthRef.current.getVoices();
       
-      // 1. Prioritize known high-quality "David" or "James" (PC/Windows)
-      // 2. Prioritize "Male" keyword
-      // 3. Prioritize "Google" or "Natural" male voices (Mobile/Android)
-      // 4. Fallback to any English male-ish sounding voice
-      const maleVoice = voices.find(v => 
-        (v.name.includes('David') || v.name.includes('James') || v.name.includes('Male')) && 
-        v.lang.startsWith('en')
-      ) || voices.find(v => 
-        (v.name.includes('Google UK English M') || v.name.includes('Guy') || v.name.includes('Stefan')) && 
-        v.lang.startsWith('en')
-      ) || voices.find(v => v.lang.startsWith('en-US')) || voices[0];
+      // LOG VOICES FOR DEBUGGING (Optional: if the user can check console)
+      // console.log("Available Voices:", voices.map(v => `${v.name} (${v.lang})`));
+
+      // Strategy: Search for specifically male sounding voices across common mobile/desktop OS
+      const maleVoice = 
+        // 1. Android/Chrome specific male IDs
+        voices.find(v => v.name.includes('en-us-x-iog-local') || v.name.includes('en-us-x-sfg#male')) ||
+        // 2. iOS/Safari specific male IDs
+        voices.find(v => v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron')) ||
+        // 3. Desktop/Windows/Google Chrome
+        voices.find(v => (v.name.includes('David') || v.name.includes('James') || v.name.includes('Google UK English Male'))) ||
+        // 4. Fallback search for any voice with "Male" in the name
+        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
+        // 5. General English fallback
+        voices.find(v => v.lang.startsWith('en-US')) ||
+        voices[0];
       
-      if (maleVoice) setSelectedVoice(maleVoice);
+      if (maleVoice) {
+        setSelectedVoice(maleVoice);
+      }
     };
 
     findBestMaleVoice();
@@ -153,7 +160,9 @@ const App: React.FC = () => {
   const speak = (text: string) => {
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) utterance.voice = selectedVoice;
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+    }
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     synthRef.current.speak(utterance);
@@ -232,11 +241,11 @@ const App: React.FC = () => {
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
           <div className="w-full max-w-4xl space-y-6">
             {currentChat.length === 0 && !isLoading && (
-              <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+              <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Speak to me. I'm ready.</p>
+                  <p className="text-slate-500 text-sm mt-2">Professional STT & Improved Voice Engine</p>
                 </div>
               </div>
             )}
@@ -244,10 +253,10 @@ const App: React.FC = () => {
             {currentChat.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex max-w-[90%] sm:max-w-[80%] items-start space-x-3 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-slate-800 border border-slate-700'}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
@@ -273,7 +282,7 @@ const App: React.FC = () => {
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Recording continues even if you pause. Tap to finish.</p>
+               <p className="text-sm text-slate-400">Speak now. I'll hear everything you say.</p>
             </div>
           )}
 
