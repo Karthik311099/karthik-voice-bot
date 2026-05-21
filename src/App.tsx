@@ -25,7 +25,7 @@ const App: React.FC = () => {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(new Audio());
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // Load History
@@ -44,13 +44,11 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      if (audioRef.current) audioRef.current.pause();
+      audioRef.current.pause();
       setError(null);
-      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
-      
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
@@ -121,7 +119,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Use Professional Cloud TTS
+      // Professional Voice Trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -139,15 +137,12 @@ const App: React.FC = () => {
       });
       const data = await response.json();
       if (data.audioUrl) {
-        if (audioRef.current) audioRef.current.pause();
-        const audio = new Audio(data.audioUrl);
-        audioRef.current = audio;
-        // On mobile, play() must be triggered by a user gesture.
-        // Since this happens after a fetch, we hope the original mic click covers it.
-        audio.play().catch(e => {
-          console.error("Playback blocked. Triggering manual play button.", e);
-          setError("Tap anywhere to hear the response.");
-          window.addEventListener('click', () => audio.play(), { once: true });
+        audioRef.current.src = data.audioUrl;
+        audioRef.current.load();
+        audioRef.current.play().catch(e => {
+          console.error("Playback blocked", e);
+          // If blocked by mobile browser, wait for next user tap
+          window.addEventListener('click', () => audioRef.current.play(), { once: true });
         });
       }
     } catch (e) {
@@ -156,7 +151,7 @@ const App: React.FC = () => {
   };
 
   const startNewChat = () => {
-    if (audioRef.current) audioRef.current.pause();
+    audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -164,7 +159,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    if (audioRef.current) audioRef.current.pause();
+    audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -172,7 +167,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (audioRef.current) audioRef.current.pause();
+    audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -183,19 +178,14 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-          onClick={() => setIsSidebarOpen(false)}
-        ></div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">History</h2>
+            <h2 className="text-xl font-bold">History</h2>
             <button onClick={() => setIsSidebarOpen(false)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><X size={24} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -222,7 +212,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -231,8 +221,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Guaranteed Natural Male Voice on All Devices</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
+                  <p className="text-slate-500 text-sm mt-2">Enterprise-Grade Voice & STT Engine</p>
                 </div>
               </div>
             )}
@@ -243,7 +233,7 @@ const App: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap font-medium">{msg.content}</p>
                   </div>
                 </div>
@@ -254,7 +244,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase italic">Thinking</span>
+                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase">Thinking</span>
                 </div>
               </div>
             )}
@@ -269,7 +259,7 @@ const App: React.FC = () => {
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Recording continues even if you pause. Tap to finish.</p>
+               <p className="text-sm text-slate-400">Speak naturally. Tap the button when finished.</p>
             </div>
           )}
 
@@ -280,7 +270,7 @@ const App: React.FC = () => {
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
             {isListening ? 'Tap to finish' : 'Tap to speak'}
           </p>
-          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
