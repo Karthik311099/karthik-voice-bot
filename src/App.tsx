@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, History as HistoryIcon, Download, Upload } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, History as HistoryIcon } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -35,7 +35,6 @@ const App: React.FC = () => {
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const finalTranscriptRef = useRef('');
   const isManuallyStopping = useRef(false);
 
   // Load History & Voices
@@ -45,12 +44,12 @@ const App: React.FC = () => {
 
     const loadVoices = () => {
       const voices = synthRef.current.getVoices();
-      // Ultra-aggressive male voice search including common mobile variants
+      
+      // Exhaustive Male Voice Search (targeting PC & Mobile)
       const maleVoice = voices.find(v => 
-        (v.name.toLowerCase().includes('male') || 
-         v.name.includes('David') || v.name.includes('James') || 
-         v.name.includes('Guy') || v.name.includes('Stefan') ||
-         v.name.includes('Google UK English M')) && 
+        (v.name.includes('Male') || v.name.includes('David') || v.name.includes('James') || 
+         v.name.includes('Guy') || v.name.includes('Stefan') || v.name.includes('George') ||
+         v.name.includes('Google UK English M') || v.name.includes('en-us-x-sfg#male')) && 
         v.lang.startsWith('en')
       ) || voices.find(v => v.lang.startsWith('en-US')) || voices[0];
       
@@ -68,7 +67,7 @@ const App: React.FC = () => {
     localStorage.setItem('karthik_chat_history', JSON.stringify(history));
   }, [history]);
 
-  // STT Setup with Auto-Restart
+  // STT Setup
   useEffect(() => {
     if (webkitSpeechRecognition) {
       recognitionRef.current = new webkitSpeechRecognition();
@@ -87,19 +86,25 @@ const App: React.FC = () => {
       };
 
       recognitionRef.current.onend = () => {
-        // Force restart if the browser stops it due to silence, but we haven't manually stopped
+        // Less aggressive restart to avoid network errors
         if (isListening && !isManuallyStopping.current) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) {
-            console.error('Restart failed', e);
-          }
+          setTimeout(() => {
+            if (isListening && !isManuallyStopping.current) {
+              try { recognitionRef.current.start(); } catch (e) {}
+            }
+          }, 100);
         }
       };
 
       recognitionRef.current.onerror = (event: any) => {
-        if (event.error === 'network') setError('Network error. Check connection.');
-        if (event.error === 'not-allowed') setError('Mic permission denied.');
+        console.error('Mic Error', event.error);
+        if (event.error === 'network') {
+          // Don't show error if we're just restarting
+          if (!isManuallyStopping.current) return;
+        }
+        if (event.error !== 'no-speech') {
+          setError(`Mic: ${event.error}`);
+        }
       };
     }
   }, [isListening]);
@@ -114,7 +119,8 @@ const App: React.FC = () => {
       isManuallyStopping.current = true;
       recognitionRef.current?.stop();
       setIsListening(false);
-      if (transcript.trim()) handleSendMessage(transcript.trim());
+      const text = transcript.trim();
+      if (text) handleSendMessage(text);
     } else {
       isManuallyStopping.current = false;
       setError(null);
@@ -143,6 +149,7 @@ const App: React.FC = () => {
     setActiveSessionId(null);
     setTranscript('');
     setIsSidebarOpen(false);
+    setError(null);
   };
 
   const loadSession = (session: ChatSession) => {
@@ -215,26 +222,6 @@ const App: React.FC = () => {
     synthRef.current.speak(utterance);
   };
 
-  // Sync / Transfer Feature
-  const exportHistory = () => {
-    const code = btoa(JSON.stringify(history));
-    navigator.clipboard.writeText(code);
-    alert('History Copied! You can paste this on your other device.');
-  };
-
-  const importHistory = () => {
-    const code = prompt('Paste your Sync Code here:');
-    if (code) {
-      try {
-        const imported = JSON.parse(atob(code));
-        setHistory(imported);
-        alert('History Synced Successfully!');
-      } catch (e) {
-        alert('Invalid Sync Code.');
-      }
-    }
-  };
-
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
@@ -262,18 +249,6 @@ const App: React.FC = () => {
               </div>
             ))}
           </div>
-
-          {/* Sync Tools */}
-          <div className="p-4 border-t border-slate-800 flex space-x-2">
-            <button onClick={exportHistory} className="flex-1 flex items-center justify-center space-x-2 py-2 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 rounded-lg">
-              <Download size={12} />
-              <span>Copy Sync Code</span>
-            </button>
-            <button onClick={importHistory} className="flex-1 flex items-center justify-center space-x-2 py-2 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 rounded-lg">
-              <Upload size={12} />
-              <span>Paste Sync Code</span>
-            </button>
-          </div>
         </div>
       </aside>
 
@@ -290,10 +265,10 @@ const App: React.FC = () => {
           <div className="w-full max-w-4xl space-y-6">
             {currentChat.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center"><Bot size={32} className="text-white" /></div>
+                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white">How can I help you today?</h2>
-                  <p className="text-slate-500 text-sm mt-2">Speak to me about Karthik's life and work.</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
+                  <p className="text-slate-500 text-sm mt-2 max-w-xs mx-auto">Ask me about my journey, superpowers, and growth areas.</p>
                 </div>
               </div>
             )}
@@ -304,7 +279,7 @@ const App: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-slate-800'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
@@ -315,7 +290,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500">Thinking...</span>
+                  <span className="text-xs text-slate-500 font-medium italic tracking-widest">Thinking...</span>
                 </div>
               </div>
             )}
@@ -339,9 +314,9 @@ const App: React.FC = () => {
           </button>
           
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
-            {isListening ? 'Tap to finish' : 'Tap to speak'}
+            {isListening ? 'Stop recording' : 'Click to talk'}
           </p>
-          {error && <p className="text-[10px] text-red-500 mt-2">{error}</p>}
+          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
