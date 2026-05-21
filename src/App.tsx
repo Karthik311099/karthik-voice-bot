@@ -36,6 +36,10 @@ const App: React.FC = () => {
     // Initialize audio object once
     audioRef.current = new Audio();
     audioRef.current.preload = 'auto';
+
+    // PRE-WARM: Wake up the APIs immediately on page load
+    fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
+    fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -48,6 +52,9 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
+      // PRE-WARM: Ping the voice API again as soon as user starts talking
+      fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
+
       if (audioRef.current) {
         audioRef.current.pause();
         // Prime audio player on user click to unlock mobile speakers
