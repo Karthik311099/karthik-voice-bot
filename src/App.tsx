@@ -22,52 +22,16 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Ultimate Voice Scavenger
+  // Load History
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-
-    const findBestMaleVoice = () => {
-      const voices = synthRef.current.getVoices();
-      
-      // LOG VOICES FOR FINAL VERIFICATION
-      console.log("Device Voice Inventory:", voices.map(v => `${v.name} (${v.lang})`));
-
-      // THE ULTIMATE VOICE SCAVENGER
-      const maleVoice = 
-        // 1. Precise Android Male IDs
-        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local') || v.name.includes('Male 1'))) ||
-        // 2. Precise iOS/macOS Male IDs
-        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron') || v.name.includes('Nicky'))) ||
-        // 3. Precise Windows Male IDs
-        voices.find(v => (v.name.includes('David') || v.name.includes('James') || v.name.includes('George') || v.name.includes('Guy'))) ||
-        // 4. Samsung Specific
-        voices.find(v => v.name.includes('Samsung') && v.name.includes('English') && v.name.toLowerCase().includes('male')) ||
-        // 5. Keyword Search (Case Insensitive)
-        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
-        // 6. Natural Language identifiers
-        voices.find(v => v.name.toLowerCase().includes('natural') && v.lang.startsWith('en')) ||
-        // 7. General Fallbacks
-        voices.find(v => v.lang.startsWith('en-US')) ||
-        voices.find(v => v.lang.startsWith('en')) ||
-        voices[0];
-      
-      if (maleVoice) {
-        setSelectedVoice(maleVoice);
-      }
-    };
-
-    findBestMaleVoice();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = findBestMaleVoice;
-    }
   }, []);
 
   useEffect(() => {
@@ -80,11 +44,13 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      synthRef.current.cancel();
+      if (audioRef.current) audioRef.current.pause();
       setError(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
+      
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
@@ -154,6 +120,8 @@ const App: React.FC = () => {
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
       }
+      
+      // Use Professional Cloud TTS
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -162,22 +130,33 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = (text: string) => {
-    synthRef.current.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
+  const speak = async (text: string) => {
+    try {
+      const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json();
+      if (data.audioUrl) {
+        if (audioRef.current) audioRef.current.pause();
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        // On mobile, play() must be triggered by a user gesture.
+        // Since this happens after a fetch, we hope the original mic click covers it.
+        audio.play().catch(e => {
+          console.error("Playback blocked. Triggering manual play button.", e);
+          setError("Tap anywhere to hear the response.");
+          window.addEventListener('click', () => audio.play(), { once: true });
+        });
+      }
+    } catch (e) {
+      console.error('Speech failed', e);
     }
-    // Mobile browsers often reset voices or have high latency. 
-    // This re-forces the selected voice right before speaking.
-    utterance.lang = selectedVoice?.lang || 'en-US';
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    synthRef.current.speak(utterance);
   };
 
   const startNewChat = () => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -185,7 +164,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -193,7 +172,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -216,7 +195,7 @@ const App: React.FC = () => {
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="text-xl font-bold">History</h2>
+            <h2 className="text-xl font-bold text-white">History</h2>
             <button onClick={() => setIsSidebarOpen(false)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><X size={24} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -243,7 +222,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { synthRef.current.cancel(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -253,7 +232,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Professional STT & Improved Voice Engine</p>
+                  <p className="text-slate-500 text-sm mt-2">Guaranteed Natural Male Voice on All Devices</p>
                 </div>
               </div>
             )}
@@ -264,8 +243,8 @@ const App: React.FC = () => {
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
-                    <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                    <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap font-medium">{msg.content}</p>
                   </div>
                 </div>
               </div>
@@ -275,7 +254,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium italic">Thinking...</span>
+                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase italic">Thinking</span>
                 </div>
               </div>
             )}
@@ -294,14 +273,14 @@ const App: React.FC = () => {
             </div>
           )}
 
-          <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
+          <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
             {isListening ? <MicOff size={32} className="text-white" /> : <Mic size={32} className="text-white" />}
           </button>
           
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
             {isListening ? 'Tap to finish' : 'Tap to speak'}
           </p>
-          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
