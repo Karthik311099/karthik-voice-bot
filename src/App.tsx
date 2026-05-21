@@ -37,11 +37,21 @@ const App: React.FC = () => {
     const findBestMaleVoice = () => {
       const voices = synthRef.current.getVoices();
       
-      // Strategy: Search for specifically male sounding voices across common mobile/desktop OS
+      // LOG VOICES TO CONSOLE (Helpful for debugging device-specific voices)
+      // console.log("Available Voices:", voices.map(v => v.name));
+
+      // Strategy: Hunt for "Natural" or "Google" voices first as they are much higher quality (less robotic)
       const maleVoice = 
-        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local'))) || // Android
-        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron'))) || // iOS
-        voices.find(v => (v.name.includes('David') || v.name.includes('James'))) || // Desktop
+        // 1. Premium "Natural" or "Neural" voices (Edge/Chrome/Safari)
+        voices.find(v => v.name.toLowerCase().includes('natural') && v.name.toLowerCase().includes('male')) ||
+        voices.find(v => v.name.includes('Google US English') || v.name.includes('Google UK English Male')) ||
+        // 2. Android Specific (High Quality)
+        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local'))) || 
+        // 3. iOS Specific (Daniel/Arthur are quite natural)
+        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron'))) || 
+        // 4. Windows Desktop Specific
+        voices.find(v => (v.name.includes('David') || v.name.includes('James'))) || 
+        // 5. Keyword fallbacks
         voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
         voices.find(v => v.lang.startsWith('en-US')) ||
         voices[0];
@@ -155,8 +165,14 @@ const App: React.FC = () => {
     if (selectedVoice) {
       utterance.voice = selectedVoice;
     }
-    utterance.rate = 1.0;
+    
+    // HUMAN-LIKE TUNING:
+    // Slightly slower rate (0.9-0.95) often sounds more natural/thoughtful
+    // Standard pitch (1.0) or slightly lower (0.98) removes robot "ringing"
+    utterance.rate = 0.95; 
     utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
     synthRef.current.speak(utterance);
   };
 
@@ -237,7 +253,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Professional STT & Native Voice Engine</p>
+                  <p className="text-slate-500 text-sm mt-2">Professional STT & Improved Natural Voice</p>
                 </div>
               </div>
             )}
