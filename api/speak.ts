@@ -3,8 +3,6 @@ export const config = {
 };
 
 export default async function handler(req: Request) {
-  // Support both POST and GET for maximum flexibility
-  // GET is much faster for mobile as it allows direct <audio src="..."> streaming
   const url = new URL(req.url);
   let text = '';
 
@@ -36,7 +34,9 @@ export default async function handler(req: Request) {
   }
 
   try {
-    // OpenAI TTS API call
+    // Switching to 'opus' format. 
+    // Opus is the industry standard for low-latency audio (used by Discord/WhatsApp).
+    // It is MUCH smaller than MP3, so it starts playing almost instantly on mobile networks.
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -46,8 +46,8 @@ export default async function handler(req: Request) {
       body: JSON.stringify({
         model: 'tts-1', // High-speed model
         input: text,
-        voice: 'onyx', // Deep professional male voice
-        response_format: 'mp3', // MP3 is most compatible with mobile audio elements
+        voice: 'onyx', 
+        response_format: 'opus', // <--- Change to Opus for speed
       }),
     });
 
@@ -56,12 +56,10 @@ export default async function handler(req: Request) {
       throw new Error(errorData.error?.message || 'OpenAI API error');
     }
 
-    // Return the response body directly as a stream. 
-    // The browser's <audio> element will play this as it downloads.
     return new Response(response.body, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/mpeg',
+        'Content-Type': 'audio/ogg', // Opus is served in an Ogg container
         'Cache-Control': 'public, max-age=3600',
       },
     });
