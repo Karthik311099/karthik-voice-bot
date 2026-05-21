@@ -43,6 +43,7 @@ Answer the user's questions as if you are Karthik in a live voice interview.
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
+        // @ts-ignore
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
         'Content-Type': 'application/json',
       },
