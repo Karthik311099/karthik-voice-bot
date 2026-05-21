@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,39 +22,19 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [showPlayButton, setShowPlayButton] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Hardened Male Voice Selection (Browser Native)
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-
-    const findBestMaleVoice = () => {
-      const voices = synthRef.current.getVoices();
-      
-      // Strategy: Search for specifically male sounding voices across common mobile/desktop OS
-      const maleVoice = 
-        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local'))) || // Android
-        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron'))) || // iOS
-        voices.find(v => (v.name.includes('David') || v.name.includes('James'))) || // Desktop
-        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
-        voices.find(v => v.lang.startsWith('en-US')) ||
-        voices[0];
-      
-      if (maleVoice) {
-        setSelectedVoice(maleVoice);
-      }
-    };
-
-    findBestMaleVoice();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = findBestMaleVoice;
-    }
+    
+    // Initialize audio object
+    audioRef.current = new Audio();
   }, []);
 
   useEffect(() => {
@@ -67,11 +47,14 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      synthRef.current.cancel();
+      if (audioRef.current) audioRef.current.pause();
       setError(null);
+      setShowPlayButton(false);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
+      
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
@@ -80,6 +63,7 @@ const App: React.FC = () => {
         await handleTranscription(audioBlob);
         stream.getTracks().forEach(track => track.stop());
       };
+      
       recorder.start(1000); 
       setIsListening(true);
     } catch (err: any) {
@@ -141,7 +125,9 @@ const App: React.FC = () => {
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
       }
-      speak(botMessage);
+      
+      // Use OpenAI Neural TTS
+      await speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
     } finally {
@@ -149,43 +135,60 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = (text: string) => {
-    synthRef.current.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
+  const speak = async (text: string) => {
+    try {
+      const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'TTS failed');
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.play().catch(err => {
+          console.warn("Autoplay blocked, showing manual play button.", err);
+          setShowPlayButton(true);
+        });
+      }
+    } catch (e: any) {
+      console.error('Speech failed', e);
+      setError('Voice Error: ' + e.message);
     }
-    
-    // HUMAN-LIKE TUNING (Native):
-    utterance.rate = 0.95; 
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-    
-    synthRef.current.speak(utterance);
   };
 
   const startNewChat = () => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
     setError(null);
+    setShowPlayButton(false);
   };
 
   const loadSession = (session: ChatSession) => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
+    setShowPlayButton(false);
   };
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
       setActiveSessionId(null);
+      setShowPlayButton(false);
     }
   };
 
@@ -231,7 +234,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { synthRef.current.cancel(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); setShowPlayButton(false); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -241,7 +244,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Professional STT & Stable Native Voice</p>
+                  <p className="text-slate-500 text-sm mt-2">Premium OpenAI Neural Voice Integration</p>
                 </div>
               </div>
             )}
@@ -272,6 +275,17 @@ const App: React.FC = () => {
         </main>
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
+          
+          {showPlayButton && (
+            <button 
+              onClick={() => { if (audioRef.current) audioRef.current.play(); setShowPlayButton(false); }}
+              className="flex items-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-full mb-6 animate-bounce shadow-2xl font-bold"
+            >
+              <Volume2 size={20} />
+              <span>Hear Response</span>
+            </button>
+          )}
+
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
