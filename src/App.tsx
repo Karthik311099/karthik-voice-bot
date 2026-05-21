@@ -112,6 +112,7 @@ const App: React.FC = () => {
       const botMessage = data.response;
       const finalMessages: Message[] = [...newMessages, { role: 'assistant', content: botMessage }];
       setCurrentChat(finalMessages);
+      setIsLoading(false); // Hide loader as soon as text is ready
       
       if (activeSessionId) {
         setHistory(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
@@ -126,11 +127,10 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Use OpenAI Neural TTS
-      await speak(botMessage);
+      // Use OpenAI Neural TTS (Non-blocking)
+      speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
-    } finally {
       setIsLoading(false);
     }
   };
