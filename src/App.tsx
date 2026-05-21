@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showPlayButton, setShowPlayButton] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -32,7 +33,7 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Initialize audio object once
+    // Initialize audio object
     audioRef.current = new Audio();
   }, []);
 
@@ -48,10 +49,11 @@ const App: React.FC = () => {
     try {
       if (audioRef.current) {
         audioRef.current.pause();
-        // IMPORTANT: "Prime" the audio player on user click to unlock mobile autoplay
+        // Prime audio for mobile autoplay
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
       setError(null);
+      setShowPlayButton(false);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
@@ -114,7 +116,7 @@ const App: React.FC = () => {
       const botMessage = data.response;
       const finalMessages: Message[] = [...newMessages, { role: 'assistant', content: botMessage }];
       setCurrentChat(finalMessages);
-      setIsLoading(false); // Hide loader as soon as text is ready
+      setIsLoading(false); 
       
       if (activeSessionId) {
         setHistory(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
@@ -129,7 +131,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Automatic Instant Voice
+      // Speed OpenAI TTS
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -145,17 +147,25 @@ const App: React.FC = () => {
         body: JSON.stringify({ text }),
       });
       
-      const data = await response.json();
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'TTS Error');
+      }
+
+      // We use a blob URL for maximum mobile compatibility with streaming bodies
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
       
-      if (data.audioUrl && audioRef.current) {
-        audioRef.current.src = data.audioUrl;
-        audioRef.current.load();
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
         audioRef.current.play().catch(err => {
-          console.error("Autoplay failed:", err);
+          console.warn("Autoplay blocked, showing play icon.", err);
+          setShowPlayButton(true);
         });
       }
     } catch (e: any) {
       console.error('Speech failed', e);
+      setError('Voice Error: ' + e.message);
     }
   };
 
@@ -187,15 +197,10 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-          onClick={() => setIsSidebarOpen(false)}
-        ></div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
@@ -235,8 +240,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
-                  <p className="text-slate-500 text-sm mt-2">Instant Voice & Premium Recognition</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
+                  <p className="text-slate-500 text-sm mt-2">Speed OpenAI Neural Voice Integration</p>
                 </div>
               </div>
             )}
@@ -268,13 +273,20 @@ const App: React.FC = () => {
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
           
+          {showPlayButton && (
+             <button onClick={() => { if (audioRef.current) audioRef.current.play(); setShowPlayButton(false); }} className="flex items-center space-x-2 text-indigo-400 font-bold mb-4 animate-bounce bg-slate-800/50 px-4 py-2 rounded-full border border-indigo-500/30">
+                <Volume2 size={20} />
+                <span>Tap to play response</span>
+             </button>
+          )}
+
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400 italic leading-relaxed">Speak naturally. Tap the button when you finish speaking.</p>
+               <p className="text-sm text-slate-400 italic leading-relaxed">Speak naturally. Tap the button when finished.</p>
             </div>
           )}
 
@@ -285,7 +297,7 @@ const App: React.FC = () => {
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
             {isListening ? 'Tap to finish' : 'Tap to speak'}
           </p>
-          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
