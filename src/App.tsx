@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, Terminal } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, Trash2, Terminal, MessageSquare, History, X, Menu } from 'lucide-react';
 
 // --- Types for Web Speech API ---
 interface IWindow extends Window {
@@ -16,6 +16,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
@@ -42,8 +43,8 @@ const App: React.FC = () => {
     // Initialize Speech Recognition
     if (webkitSpeechRecognition) {
       recognitionRef.current = new webkitSpeechRecognition();
-      recognitionRef.current.continuous = true; // Changed to true for manual stop
-      recognitionRef.current.interimResults = true; // Show results as they come
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
       recognitionRef.current.lang = 'en-US';
 
       recognitionRef.current.onresult = (event: any) => {
@@ -58,26 +59,17 @@ const App: React.FC = () => {
           }
         }
         
-        if (finalTranscript) {
-          setTranscript(finalTranscript);
-        } else {
-          setTranscript(interimTranscript);
-        }
+        if (finalTranscript) setTranscript(finalTranscript);
+        else setTranscript(interimTranscript);
       };
 
       recognitionRef.current.onerror = (event: any) => {
         console.error('Speech recognition error', event.error);
         if (event.error !== 'no-speech') {
           setIsListening(false);
-          setError(`Error: ${event.error}. Please check mic permissions.`);
+          setError(`Error: ${event.error}`);
         }
       };
-
-      recognitionRef.current.onend = () => {
-        // We handle stopping manually, but this ensures state is clean
-      };
-    } else {
-      setError('Your browser does not support Speech Recognition. Please use Chrome.');
     }
   }, []);
 
@@ -86,28 +78,19 @@ const App: React.FC = () => {
   }, [messages, isLoading]);
 
   const toggleListening = () => {
-    // 1. Stop any current speaking immediately
-    if (synthRef.current.speaking) {
-      synthRef.current.cancel();
-    }
+    if (synthRef.current.speaking) synthRef.current.cancel();
 
     if (isListening) {
-      // STOP LISTENING & SEND
       recognitionRef.current?.stop();
       setIsListening(false);
-      if (transcript.trim()) {
-        handleSendMessage(transcript);
-      }
+      if (transcript.trim()) handleSendMessage(transcript);
     } else {
-      // START LISTENING
       setError(null);
       setTranscript('');
       try {
         recognitionRef.current?.start();
         setIsListening(true);
       } catch (e) {
-        console.error(e);
-        // If already started, just reset state
         setIsListening(true);
       }
     }
@@ -115,11 +98,10 @@ const App: React.FC = () => {
 
   const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
-
     const newMessages = [...messages, { role: 'user' as const, content: text }];
     setMessages(newMessages);
     setIsLoading(true);
-    setTranscript(''); // Clear transcript after sending
+    setTranscript('');
 
     try {
       const response = await fetch('/api/chat', {
@@ -136,7 +118,6 @@ const App: React.FC = () => {
       speak(botMessage);
     } catch (err: any) {
       setError('API Error: ' + err.message);
-      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -145,7 +126,6 @@ const App: React.FC = () => {
   const speak = (text: string) => {
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    
     if (selectedVoice) utterance.voice = selectedVoice;
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
@@ -159,195 +139,152 @@ const App: React.FC = () => {
     setError(null);
   };
 
-  const downloadHistory = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(messages, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href",     dataStr);
-    downloadAnchorNode.setAttribute("download", "conversation_history.json");
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
-
   return (
-    <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-0 sm:p-4 font-sans text-slate-200 overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full"></div>
-      </div>
-
-      <div className="relative z-10 w-full max-w-5xl h-screen sm:h-[90vh] flex flex-col bg-slate-900/50 sm:rounded-3xl border border-slate-800 backdrop-blur-xl shadow-2xl overflow-hidden">
-        
-        {/* Header */}
-        <header className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Bot className="text-white" size={24} />
+    <div className="min-h-screen bg-[#020617] text-slate-200 font-sans flex overflow-hidden">
+      
+      {/* Sidebar for History (Desktop) */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 transition-transform duration-300 lg:relative lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex flex-col h-full">
+          <div className="p-6 border-b border-slate-800 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <History size={20} className="text-indigo-400" />
+              <span className="font-bold tracking-tight">Chat History</span>
             </div>
-            <div>
-              <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
-                Karthik AI
-              </h1>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold">Voice Proxy v2.0</p>
-            </div>
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-1 text-slate-500 hover:text-white">
+              <X size={20} />
+            </button>
           </div>
           
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={downloadHistory}
-              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
-              title="Download JSON History"
-            >
-              <Terminal size={20} />
-            </button>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {messages.filter(m => m.role === 'user').length === 0 ? (
+              <div className="text-center py-10 text-slate-600 text-sm">
+                No recent conversations
+              </div>
+            ) : (
+              messages.filter(m => m.role === 'user').map((msg, i) => (
+                <div key={i} className="p-3 bg-slate-800/50 rounded-xl border border-slate-700/50 text-xs text-slate-400 line-clamp-2 hover:bg-slate-800 transition-colors cursor-default">
+                  {msg.content}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="p-4 border-t border-slate-800">
             <button 
               onClick={clearHistory}
-              className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
-              title="Clear Conversation"
+              className="w-full flex items-center justify-center space-x-2 py-3 px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all border border-red-500/20"
             >
-              <Trash2 size={20} />
+              <Trash2 size={16} />
+              <span className="text-sm font-semibold">Clear Session</span>
             </button>
           </div>
-        </header>
+        </div>
+      </aside>
 
-        {/* Chat Area */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-8 scrollbar-hide">
-          {messages.length === 0 && !isLoading && (
-            <div className="flex flex-col items-center justify-center h-full text-slate-500 space-y-6 animate-in fade-in duration-700">
-              <div className="relative">
-                <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 animate-pulse"></div>
-                <Bot size={80} strokeWidth={1} className="relative text-indigo-400" />
-              </div>
-              <div className="text-center max-w-md">
-                <h2 className="text-2xl font-semibold text-white mb-2">Ready for Interview</h2>
-                <p className="text-slate-400 leading-relaxed">
-                  Tap the microphone to start speaking. I'll listen until you tap it again to process your question.
-                </p>
-              </div>
-            </div>
-          )}
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col relative min-w-0">
+        
+        {/* Mobile Nav */}
+        <nav className="lg:hidden p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50 backdrop-blur-md">
+           <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400">
+             <Menu size={24} />
+           </button>
+           <span className="font-bold">Karthik AI</span>
+           <div className="w-10"></div>
+        </nav>
 
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-4 duration-300`}
-            >
-              <div
-                className={`flex max-w-[90%] sm:max-w-[80%] items-start space-x-3 ${
-                  msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''
-                }`}
-              >
-                <div className={`mt-1 p-2 rounded-xl shrink-0 ${msg.role === 'user' ? 'bg-indigo-600' : 'bg-slate-800'}`}>
-                  {msg.role === 'user' ? <User size={18} className="text-white" /> : <Bot size={18} className="text-indigo-400" />}
-                </div>
-                <div
-                  className={`p-4 rounded-2xl ${
-                    msg.role === 'user'
-                      ? 'bg-indigo-600 text-white rounded-tr-none shadow-lg shadow-indigo-500/10'
-                      : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-xl'
-                  }`}
-                >
-                  <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="flex justify-start animate-pulse">
-              <div className="flex items-center space-x-3 bg-slate-800 p-4 rounded-2xl rounded-tl-none border border-slate-700">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-.3s]"></div>
-                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-.5s]"></div>
-                </div>
-                <span className="text-slate-400 text-xs font-medium italic">Karthik is replying...</span>
-              </div>
-            </div>
-          )}
-          <div ref={transcriptEndRef} />
-        </main>
-
-        {/* Control Center */}
-        <div className="p-6 sm:p-10 bg-slate-900/90 border-t border-slate-800 relative">
+        {/* Chat Wrapper (Centered) */}
+        <div className="flex-1 flex flex-col items-center justify-center relative overflow-hidden">
           
-          {/* Waveform/Transcript Preview */}
-          <div className="absolute top-0 left-0 w-full -translate-y-full px-6 py-4 bg-gradient-to-t from-slate-900 to-transparent">
-            {isListening && (
-              <div className="flex flex-col items-center space-y-3">
-                <div className="flex items-center space-x-1">
-                   {[...Array(8)].map((_, i) => (
-                     <div 
-                      key={i} 
-                      className="w-1 bg-indigo-500 rounded-full animate-shimmer"
-                      style={{ 
-                        height: `${Math.random() * 20 + 10}px`,
-                        animationDuration: `${Math.random() * 0.5 + 0.5}s`
-                      }}
-                    ></div>
-                   ))}
-                </div>
-                <p className="text-indigo-400 text-sm font-medium animate-pulse italic">
-                  {transcript || "Listening for your voice..."}
-                </p>
-              </div>
-            )}
-          </div>
+          {/* Background Glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/5 blur-[120px] rounded-full pointer-events-none"></div>
 
-          <div className="flex flex-col items-center space-y-6">
-            {error && (
-              <p className="text-red-400 text-xs bg-red-400/10 px-4 py-2 rounded-full border border-red-400/20">
-                {error}
-              </p>
-            )}
-
-            <div className="flex items-center space-x-8">
-               <button
-                onClick={toggleListening}
-                disabled={isLoading}
-                className={`group relative flex items-center justify-center w-24 h-24 rounded-full transition-all duration-500 transform ${
-                  isListening
-                    ? 'bg-red-500 shadow-[0_0_50px_rgba(239,68,68,0.4)] scale-110'
-                    : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_50px_rgba(79,70,229,0.3)] hover:scale-105'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
-              >
-                {isListening ? (
-                  <MicOff className="text-white" size={40} />
-                ) : (
-                  <Mic className="text-white" size={40} />
-                )}
-                
-                {isListening && (
-                  <div className="absolute inset-0 rounded-full border-8 border-red-400/30 animate-ping"></div>
-                )}
-              </button>
-            </div>
+          <div className="w-full max-w-3xl h-full flex flex-col relative z-10">
             
-            <div className="text-center">
-              <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-500">
-                {isListening ? 'Tap to finish speaking' : 'Tap to start speaking'}
-              </span>
+            {/* Messages */}
+            <main className="flex-1 overflow-y-auto p-6 sm:p-10 space-y-8 scrollbar-hide">
+              {messages.length === 0 && !isLoading && (
+                <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
+                  <div className="w-20 h-20 bg-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-indigo-500/20 animate-bounce">
+                    <Bot size={40} className="text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-bold text-white mb-2">Hello, I'm Karthik's AI</h2>
+                    <p className="text-slate-500 max-w-sm">Tap the microphone to start our conversation. I'm ready for your questions.</p>
+                  </div>
+                </div>
+              )}
+
+              {messages.map((msg, index) => (
+                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+                  <div className={`flex max-w-[85%] items-start space-x-4 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-slate-800 border border-slate-700'}`}>
+                      {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
+                    </div>
+                    <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl shadow-indigo-500/10' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
+                      <p className="text-sm sm:text-base leading-relaxed">{msg.content}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {isLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700/50 flex items-center space-x-3">
+                    <Loader2 className="animate-spin text-indigo-400" size={18} />
+                    <span className="text-xs text-slate-500 font-medium italic">Generating response...</span>
+                  </div>
+                </div>
+              )}
+              <div ref={transcriptEndRef} />
+            </main>
+
+            {/* Input Controls */}
+            <div className="p-8 sm:p-12">
+               <div className="flex flex-col items-center space-y-6">
+                  
+                  {isListening && (
+                    <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 p-4 rounded-2xl backdrop-blur-md animate-in slide-in-from-bottom-4">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="flex space-x-1">
+                          {[1,2,3].map(i => <div key={i} className="w-1 h-3 bg-indigo-500 rounded-full animate-pulse"></div>)}
+                        </div>
+                        <span className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">Listening</span>
+                      </div>
+                      <p className="text-sm text-slate-300 italic line-clamp-2">
+                        {transcript || "Speak now..."}
+                      </p>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={toggleListening}
+                    disabled={isLoading}
+                    className={`w-28 h-28 rounded-full flex items-center justify-center transition-all duration-500 transform active:scale-90 ${
+                      isListening 
+                        ? 'bg-red-500 shadow-[0_0_60px_rgba(239,68,68,0.4)] scale-110' 
+                        : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_60px_rgba(79,70,229,0.3)] hover:scale-105'
+                    } disabled:opacity-50 disabled:grayscale`}
+                  >
+                    {isListening ? <MicOff size={44} className="text-white" /> : <Mic size={44} className="text-white" />}
+                    {isListening && <div className="absolute inset-0 rounded-full border-4 border-red-400/30 animate-ping"></div>}
+                  </button>
+
+                  <div className="text-center space-y-1">
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-600">
+                      {isListening ? 'Click to process' : 'Click to talk'}
+                    </p>
+                    {error && <p className="text-[10px] text-red-400 bg-red-400/5 px-3 py-1 rounded-full border border-red-400/10">{error}</p>}
+                  </div>
+               </div>
             </div>
           </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes shimmer {
-          0%, 100% { height: 10px; opacity: 0.5; }
-          50% { height: 30px; opacity: 1; }
-        }
-        .animate-shimmer {
-          animation: shimmer infinite ease-in-out;
-        }
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
-        }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     </div>
   );
