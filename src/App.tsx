@@ -21,36 +21,17 @@ const App: React.FC = () => {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Voices
+  // Load History
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-
-    const loadVoices = () => {
-      const voices = synthRef.current.getVoices();
-      // Expanded search for male voices (PC and Mobile)
-      const maleVoice = voices.find(v => 
-        (v.name.toLowerCase().includes('male') || v.name.includes('David') || v.name.includes('James') || 
-         v.name.includes('Guy') || v.name.includes('Stefan') || v.name.includes('George') ||
-         v.name.includes('Google UK English M') || v.name.includes('en-us-x-sfg#male')) && 
-        v.lang.startsWith('en')
-      ) || voices.find(v => v.lang.startsWith('en-US')) || voices[0];
-      
-      if (maleVoice) setSelectedVoice(maleVoice);
-    };
-
-    loadVoices();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = loadVoices;
-    }
   }, []);
 
   useEffect(() => {
@@ -63,10 +44,15 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      synthRef.current.cancel();
+      if (audioRef.current) audioRef.current.pause();
       setError(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      
+      // Select best supported mime type
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
@@ -75,16 +61,16 @@ const App: React.FC = () => {
       };
 
       recorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         await handleTranscription(audioBlob);
         stream.getTracks().forEach(track => track.stop());
       };
 
-      recorder.start();
+      // Set timeslice to ensure data keeps coming even if there are pauses
+      recorder.start(1000); 
       setIsListening(true);
     } catch (err: any) {
       setError('Mic Error: ' + err.message);
-      console.error(err);
     }
   };
 
@@ -101,18 +87,14 @@ const App: React.FC = () => {
       const formData = new FormData();
       formData.append('file', blob);
 
-      const response = await fetch('/api/transcribe', {
-        method: 'POST',
-        body: formData,
-      });
-
+      const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      if (data.text.trim()) {
+      if (data.text?.trim()) {
         await handleSendMessage(data.text);
       } else {
-        setError('No speech detected. Try again.');
+        setError('No speech detected. Please speak clearly.');
       }
     } catch (err: any) {
       setError('Transcription failed: ' + err.message);
@@ -151,6 +133,8 @@ const App: React.FC = () => {
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
       }
+      
+      // Use Cloud TTS for universal consistency
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -159,17 +143,27 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = (text: string) => {
-    synthRef.current.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) utterance.voice = selectedVoice;
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    synthRef.current.speak(utterance);
+  const speak = async (text: string) => {
+    try {
+      const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json();
+      if (data.audioUrl) {
+        if (audioRef.current) audioRef.current.pause();
+        const audio = new Audio(data.audioUrl);
+        audioRef.current = audio;
+        audio.play();
+      }
+    } catch (e) {
+      console.error('Speech failed', e);
+    }
   };
 
   const startNewChat = () => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -177,7 +171,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -185,7 +179,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    synthRef.current.cancel();
+    if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -227,28 +221,28 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { synthRef.current.cancel(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
           <div className="w-full max-w-4xl space-y-6">
             {currentChat.length === 0 && !isLoading && (
-              <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
+              <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
+                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">I am powered by Groq Whisper. Accurate and reliable.</p>
+                  <p className="text-slate-500 text-sm mt-2">Professional STT & Universal Cloud Voice</p>
                 </div>
               </div>
             )}
 
             {currentChat.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in`}>
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
                 <div className={`flex max-w-[90%] sm:max-w-[80%] items-start space-x-3 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg' : 'bg-slate-800 border border-slate-700'}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-indigo-600 shadow-lg shadow-indigo-500/20' : 'bg-slate-800 border border-slate-700'}`}>
                     {msg.role === 'user' ? <User size={16} className="text-white" /> : <Bot size={16} className="text-indigo-400" />}
                   </div>
-                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700'}`}>
+                  <div className={`p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-xl' : 'bg-slate-800 text-slate-200 rounded-tl-none border border-slate-700 shadow-2xl'}`}>
                     <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
@@ -259,7 +253,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium italic">Thinking...</span>
+                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase">Thinking</span>
                 </div>
               </div>
             )}
@@ -270,24 +264,20 @@ const App: React.FC = () => {
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
-               <div className="flex items-center justify-center space-x-2 mb-2">
+               <div className="flex items-center justify-center space-x-3 mb-2">
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Speak now, I'm recording your voice...</p>
+               <p className="text-sm text-slate-400">Recording continues even if you pause. Tap to finish.</p>
             </div>
           )}
 
-          <button 
-            onClick={isListening ? stopRecording : startRecording} 
-            disabled={isLoading} 
-            className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}
-          >
+          <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
             {isListening ? <MicOff size={32} className="text-white" /> : <Mic size={32} className="text-white" />}
           </button>
           
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
-            {isListening ? 'Tap to finish' : 'Tap to speak'}
+            {isListening ? 'Stop Recording' : 'Tap to talk'}
           </p>
           {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
         </div>
