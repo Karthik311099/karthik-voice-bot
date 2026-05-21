@@ -33,8 +33,9 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Initialize audio object
+    // Initialize audio object once
     audioRef.current = new Audio();
+    audioRef.current.preload = 'auto';
   }, []);
 
   useEffect(() => {
@@ -49,7 +50,7 @@ const App: React.FC = () => {
     try {
       if (audioRef.current) {
         audioRef.current.pause();
-        // Prime audio for mobile autoplay
+        // Prime audio player on user click to unlock mobile speakers
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
       setError(null);
@@ -131,7 +132,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Speed OpenAI TTS
+      // Zero-Delay Voice Trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -139,34 +140,19 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = async (text: string) => {
-    try {
-      const response = await fetch('/api/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'TTS Error');
-      }
+  const speak = (text: string) => {
+    if (!audioRef.current) return;
 
-      // We use a blob URL for maximum mobile compatibility with streaming bodies
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      if (audioRef.current) {
-        audioRef.current.src = audioUrl;
-        audioRef.current.play().catch(err => {
-          console.warn("Autoplay blocked, showing play icon.", err);
-          setShowPlayButton(true);
-        });
-      }
-    } catch (e: any) {
-      console.error('Speech failed', e);
-      setError('Voice Error: ' + e.message);
-    }
+    // DIRECT STREAMING: We point the audio player directly to the API URL.
+    // This allows the browser to start playing as soon as the first few bytes arrive.
+    // No more waiting for full 'fetch' downloads!
+    const audioUrl = `/api/speak?text=${encodeURIComponent(text)}`;
+    
+    audioRef.current.src = audioUrl;
+    audioRef.current.play().catch(err => {
+      console.warn("Autoplay blocked, showing play icon.", err);
+      setShowPlayButton(true);
+    });
   };
 
   const startNewChat = () => {
@@ -175,6 +161,7 @@ const App: React.FC = () => {
     setActiveSessionId(null);
     setIsSidebarOpen(false);
     setError(null);
+    setShowPlayButton(false);
   };
 
   const loadSession = (session: ChatSession) => {
@@ -182,6 +169,7 @@ const App: React.FC = () => {
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
+    setShowPlayButton(false);
   };
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
@@ -191,16 +179,22 @@ const App: React.FC = () => {
     if (activeSessionId === id) {
       setCurrentChat([]);
       setActiveSessionId(null);
+      setShowPlayButton(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
+      {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+          onClick={() => setIsSidebarOpen(false)}
+        ></div>
       )}
 
+      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
@@ -231,7 +225,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
+          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); setShowPlayButton(false); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -240,8 +234,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Proxy</h2>
-                  <p className="text-slate-500 text-sm mt-2">Speed OpenAI Neural Voice Integration</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
+                  <p className="text-slate-500 text-sm mt-2">Zero-Delay Neural Voice Integration</p>
                 </div>
               </div>
             )}

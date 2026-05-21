@@ -3,32 +3,40 @@ export const config = {
 };
 
 export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
+  // Support both POST and GET for maximum flexibility
+  // GET is much faster for mobile as it allows direct <audio src="..."> streaming
+  const url = new URL(req.url);
+  let text = '';
+
+  if (req.method === 'POST') {
+    try {
+      const body = await req.json();
+      text = body.text;
+    } catch (e) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
+    }
+  } else {
+    text = url.searchParams.get('text') || '';
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'OPENAI_API_KEY is missing.' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!text) {
+    return new Response(JSON.stringify({ error: 'No text provided' }), {
+      status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
   try {
-    const { text } = await req.json();
-    const apiKey = process.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'OPENAI_API_KEY is missing. Please check your Vercel Environment Variables.' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (!text) {
-      return new Response(JSON.stringify({ error: 'No text provided' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // OpenAI TTS API call with the high-speed 'tts-1' model
+    // OpenAI TTS API call
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -36,10 +44,10 @@ export default async function handler(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1', // Fast model
+        model: 'tts-1', // High-speed model
         input: text,
         voice: 'onyx', // Deep professional male voice
-        response_format: 'mp3',
+        response_format: 'mp3', // MP3 is most compatible with mobile audio elements
       }),
     });
 
@@ -48,12 +56,13 @@ export default async function handler(req: Request) {
       throw new Error(errorData.error?.message || 'OpenAI API error');
     }
 
-    // Stream the audio back to the client for faster playback start
+    // Return the response body directly as a stream. 
+    // The browser's <audio> element will play this as it downloads.
     return new Response(response.body, {
       status: 200,
       headers: {
         'Content-Type': 'audio/mpeg',
-        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'public, max-age=3600',
       },
     });
   } catch (error: any) {
