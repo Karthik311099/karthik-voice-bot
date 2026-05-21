@@ -29,7 +29,7 @@ const App: React.FC = () => {
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
-  // Load History & Hardened Male Voice Selection
+  // Load History & Ultimate Voice Scavenger
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
@@ -37,21 +37,26 @@ const App: React.FC = () => {
     const findBestMaleVoice = () => {
       const voices = synthRef.current.getVoices();
       
-      // LOG VOICES FOR DEBUGGING (Optional: if the user can check console)
-      // console.log("Available Voices:", voices.map(v => `${v.name} (${v.lang})`));
+      // LOG VOICES FOR FINAL VERIFICATION
+      console.log("Device Voice Inventory:", voices.map(v => `${v.name} (${v.lang})`));
 
-      // Strategy: Search for specifically male sounding voices across common mobile/desktop OS
+      // THE ULTIMATE VOICE SCAVENGER
       const maleVoice = 
-        // 1. Android/Chrome specific male IDs
-        voices.find(v => v.name.includes('en-us-x-iog-local') || v.name.includes('en-us-x-sfg#male')) ||
-        // 2. iOS/Safari specific male IDs
-        voices.find(v => v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron')) ||
-        // 3. Desktop/Windows/Google Chrome
-        voices.find(v => (v.name.includes('David') || v.name.includes('James') || v.name.includes('Google UK English Male'))) ||
-        // 4. Fallback search for any voice with "Male" in the name
+        // 1. Precise Android Male IDs
+        voices.find(v => (v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local') || v.name.includes('Male 1'))) ||
+        // 2. Precise iOS/macOS Male IDs
+        voices.find(v => (v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron') || v.name.includes('Nicky'))) ||
+        // 3. Precise Windows Male IDs
+        voices.find(v => (v.name.includes('David') || v.name.includes('James') || v.name.includes('George') || v.name.includes('Guy'))) ||
+        // 4. Samsung Specific
+        voices.find(v => v.name.includes('Samsung') && v.name.includes('English') && v.name.toLowerCase().includes('male')) ||
+        // 5. Keyword Search (Case Insensitive)
         voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
-        // 5. General English fallback
+        // 6. Natural Language identifiers
+        voices.find(v => v.name.toLowerCase().includes('natural') && v.lang.startsWith('en')) ||
+        // 7. General Fallbacks
         voices.find(v => v.lang.startsWith('en-US')) ||
+        voices.find(v => v.lang.startsWith('en')) ||
         voices[0];
       
       if (maleVoice) {
@@ -163,6 +168,9 @@ const App: React.FC = () => {
     if (selectedVoice) {
       utterance.voice = selectedVoice;
     }
+    // Mobile browsers often reset voices or have high latency. 
+    // This re-forces the selected voice right before speaking.
+    utterance.lang = selectedVoice?.lang || 'en-US';
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
     synthRef.current.speak(utterance);
@@ -282,7 +290,7 @@ const App: React.FC = () => {
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                  <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400">Speak now. I'll hear everything you say.</p>
+               <p className="text-sm text-slate-400">Recording continues even if you pause. Tap to finish.</p>
             </div>
           )}
 
