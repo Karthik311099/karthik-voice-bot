@@ -162,16 +162,23 @@ const App: React.FC = () => {
       setCurrentChat(prev => [...prev, { role: 'assistant', content: '' }]);
 
       const decoder = new TextDecoder();
+      let streamBuffer = ''; // BUFFER FOR PARTIAL CHUNKS
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(l => l.trim() !== '');
+        streamBuffer += decoder.decode(value, { stream: true });
+        
+        const lines = streamBuffer.split('\n');
+        // Keep the last partial line in the buffer
+        streamBuffer = lines.pop() || '';
         
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const dataStr = line.replace('data: ', '');
+          const trimmedLine = line.trim();
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+          
+          const dataStr = trimmedLine.replace('data: ', '');
           if (dataStr === '[DONE]') break;
           
           try {
@@ -181,34 +188,32 @@ const App: React.FC = () => {
               fullText += token;
               sentenceBufferRef.current += token;
               
-              // Update UI
+              // Update UI (Direct update for speed)
               setCurrentChat(prev => {
                 const updated = [...prev];
                 updated[updated.length - 1].content = fullText;
                 return updated;
               });
 
-              // SENTENCE DETECTION FOR MOBILE
+              // ROBUST SENTENCE DETECTION (Mobile Only)
               if (isMobile) {
-                // Check if buffer contains sentence end
-                if (/[.!?\n]/.test(token)) {
-                  const sentence = sentenceBufferRef.current.trim();
-                  if (sentence.length > 5) {
-                    fetchAudioForSentence(sentence);
-                    sentenceBufferRef.current = '';
-                  }
+                // Trigger audio if we find punctuation AND buffer is long enough
+                if (/[.!?\n]/.test(token) && sentenceBufferRef.current.trim().length > 10) {
+                  fetchAudioForSentence(sentenceBufferRef.current.trim());
+                  sentenceBufferRef.current = '';
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            // console.error("Parse error", e, dataStr);
+          }
         }
       }
 
-      // Final cleanup for any leftover text in buffer
+      // Final cleanup for any leftover text
       if (isMobile && sentenceBufferRef.current.trim().length > 0) {
         fetchAudioForSentence(sentenceBufferRef.current.trim());
       } else if (!isMobile) {
-        // PC: Speak full text at once using native TTS (zero latency)
         speakNative(fullText);
       }
 
