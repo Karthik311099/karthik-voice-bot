@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare, Trash2 } from 'lucide-react';
 
-// --- Types ---
+// --- Python Developer Note: These are like defining global Pydantic models ---
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -15,6 +15,7 @@ interface ChatSession {
 }
 
 const App: React.FC = () => {
+  // --- Python Analogy: These are like your dashboard state variables in Streamlit ---
   const [isListening, setIsListening] = useState(false);
   const [currentChat, setCurrentChat] = useState<Message[]>([]);
   const [history, setHistory] = useState<ChatSession[]>([]);
@@ -24,56 +25,59 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // Refs for logic
+  // --- Python Analogy: These refs are like persistent global variables that don't trigger a screen refresh ---
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   
-  // Streaming & Queue Refs
+  // Streaming & Audio Queue management
   const abortControllerRef = useRef<AbortController | null>(null);
   const audioQueueRef = useRef<string[]>([]);
   const isPlayingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceBufferRef = useRef('');
 
-  // Sequencing Refs (GUARANTEES ORDER ON MOBILE)
+  // This ensures sentences play in the correct order (prevents race conditions)
   const sentenceDispatchIndexRef = useRef(0);
   const nextExpectedIndexRef = useRef(0);
   const audioBufferMapRef = useRef<Record<number, string>>({});
 
+  // Equivalent to: if __name__ == "__main__": or loading a config file
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
+    // Check if the user is on a phone or laptop
     const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     setIsMobile(mobileCheck);
 
     audioRef.current = new Audio();
+    // When one sentence finishes playing, start the next one in the queue automatically
     audioRef.current.onended = () => playNextInQueue();
 
-    // PRE-WARM APIs
+    // PRE-WARM: "Wake up" the backend servers immediately
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
     fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
 
+  // Sync history to local storage whenever it changes
   useEffect(() => {
     localStorage.setItem('karthik_chat_history', JSON.stringify(history));
   }, [history]);
 
+  // Keep the chat window scrolled to the bottom (Autoscroll)
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, isLoading]);
 
+  // Kills all active sound and text generation immediately
   const stopAllSpeech = () => {
-    // Stop Native TTS
-    synthRef.current.cancel();
-    // Stop Streaming Audio
+    synthRef.current.cancel(); // Stop PC native voice
     if (audioRef.current) {
-      audioRef.current.pause();
+      audioRef.current.pause(); // Stop Mobile streaming voice
       audioRef.current.src = '';
     }
-    // Clear Queues & Ordering
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     sentenceBufferRef.current = '';
@@ -81,21 +85,22 @@ const App: React.FC = () => {
     nextExpectedIndexRef.current = 0;
     audioBufferMapRef.current = {};
 
-    // Abort ongoing text stream
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      abortControllerRef.current.abort(); // Cancel the LLM request
     }
   };
 
+  // --- Input Logic: This starts the microphone ---
   const startRecording = async () => {
     try {
       stopAllSpeech();
-      // Unlock mobile audio
+      // Unlock mobile speakers for future playback
       if (audioRef.current) {
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
       setError(null);
       
+      // Request mic access - exactly like using sounddevice or pyaudio
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -105,7 +110,7 @@ const App: React.FC = () => {
       recorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       recorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        await handleTranscription(audioBlob);
+        await handleTranscription(audioBlob); // Send audio to Whisper
         stream.getTracks().forEach(track => track.stop());
       };
       
@@ -123,6 +128,7 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Logic to send audio file to the backend API ---
   const handleTranscription = async (blob: Blob) => {
     setIsLoading(true);
     try {
@@ -131,6 +137,8 @@ const App: React.FC = () => {
       const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
+      
+      // If we got valid text back, send it to the LLM
       if (data.text?.trim()) {
         await handleSendMessage(data.text);
       } else {
@@ -143,6 +151,7 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Logic to send text to Groq and stream the response ---
   const handleSendMessage = async (text: string) => {
     stopAllSpeech();
     const newMessages: Message[] = [...currentChat, { role: 'user', content: text }];
@@ -165,14 +174,15 @@ const App: React.FC = () => {
       if (!reader) throw new Error('No reader');
 
       let fullText = '';
-      setIsLoading(false); // Hide thinking as tokens arrive
+      setIsLoading(false); 
 
-      // Start Assistant Message placeholder
+      // Create a temporary message on the screen that we will update live
       setCurrentChat(prev => [...prev, { role: 'assistant', content: '' }]);
 
       const decoder = new TextDecoder();
       let streamBuffer = '';
 
+      // --- TOKEN STREAMING LOOP ---
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -185,7 +195,6 @@ const App: React.FC = () => {
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-          
           const dataStr = trimmedLine.replace('data: ', '');
           if (dataStr === '[DONE]') break;
           
@@ -196,15 +205,15 @@ const App: React.FC = () => {
               fullText += token;
               sentenceBufferRef.current += token;
               
+              // LIVE UI UPDATE (The typing effect)
               setCurrentChat(prev => {
                 const updated = [...prev];
                 updated[updated.length - 1].content = fullText;
                 return updated;
               });
 
+              // MOBILE PERFORMANCE: If a sentence ends, start the voice immediately
               if (isMobile) {
-                // SENSITIVE SENTENCE DETECTION
-                // We dispatch if we hit punctuation OR if the buffer is getting too long (for speed)
                 if (/[.!?\n]/.test(token) || sentenceBufferRef.current.length > 80) {
                   const sentence = sentenceBufferRef.current.trim();
                   if (sentence.length > 2) {
@@ -219,14 +228,16 @@ const App: React.FC = () => {
         }
       }
 
+      // Final cleanup for remaining text
       if (isMobile && sentenceBufferRef.current.trim().length > 0) {
         const myIndex = sentenceDispatchIndexRef.current++;
         fetchAudioForSentence(sentenceBufferRef.current.trim(), myIndex);
       } else if (!isMobile) {
+        // PC: Native speakers don't need streaming, they play everything at once instantly
         speakNative(fullText);
       }
 
-      // Sync to history
+      // Final history sync
       const finalMessages: Message[] = [...newMessages, { role: 'assistant', content: fullText }];
       if (activeSessionId) {
         setHistory(h => h.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
@@ -249,7 +260,7 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Voice Pipeline (Mobile: OpenAI Sentence-by-Sentence with Indexing) ---
+  // --- Voice Pipeline: Request audio for a specific sentence chunk ---
   const fetchAudioForSentence = async (text: string, index: number) => {
     try {
       const response = await fetch('/api/speak', {
@@ -260,27 +271,20 @@ const App: React.FC = () => {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       
-      // Store in buffer map using its unique index
+      // Store in buffer map to ensure Sentence 1 plays before Sentence 2
       audioBufferMapRef.current[index] = url;
-      
-      // Try to move anything from buffer to the playable queue in correct order
       processAudioBuffer();
     } catch (e) {}
   };
 
   const processAudioBuffer = () => {
-    // Move URLs from Map to Queue strictly in index order
     while (audioBufferMapRef.current[nextExpectedIndexRef.current]) {
       const nextUrl = audioBufferMapRef.current[nextExpectedIndexRef.current];
       audioQueueRef.current.push(nextUrl);
       delete audioBufferMapRef.current[nextExpectedIndexRef.current];
       nextExpectedIndexRef.current++;
     }
-
-    // If nothing is playing, start the queue
-    if (!isPlayingRef.current) {
-      playNextInQueue();
-    }
+    if (!isPlayingRef.current) playNextInQueue();
   };
 
   const playNextInQueue = () => {
@@ -294,11 +298,12 @@ const App: React.FC = () => {
       audioRef.current.src = nextUrl;
       audioRef.current.play().catch(() => {
         isPlayingRef.current = false;
-        playNextInQueue(); // Skip and try next if blocked
+        playNextInQueue();
       });
     }
   };
 
+  // --- Native PC Voice Engine ---
   const speakNative = (text: string) => {
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = synthRef.current.getVoices();
@@ -333,9 +338,11 @@ const App: React.FC = () => {
     }
   };
 
+  // --- UI RENDER (The Dashboard) ---
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
+      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}

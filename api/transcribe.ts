@@ -1,18 +1,23 @@
+// --- Python Developer Note: This is exactly like a Flask/FastAPI route for audio processing ---
+// Similar to using: transcription = openai.Audio.transcribe("whisper-1", audio_file)
+
 export const config = {
-  runtime: 'edge',
+  runtime: 'edge', // Runs on Vercel's global network
 };
 
 export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
   try {
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Equivalent to: form_data = await request.form()
     const formData = await req.formData();
-    const file = formData.get('file') as File;
+    const file = formData.get('file') as File; // Get the audio file from the payload
 
     if (!file) {
       return new Response(JSON.stringify({ error: 'No file provided' }), {
@@ -21,18 +26,25 @@ export default async function handler(req: Request) {
       });
     }
 
-    // Convert file to buffer for Groq
+    if (!process.env.GROQ_API_KEY) {
+      return new Response(JSON.stringify({ error: 'GROQ_API_KEY is missing' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Convert file to a buffer that Groq understands
     const arrayBuffer = await file.arrayBuffer();
     
-    // We need to send this to Groq. Groq Whisper uses multipart/form-data.
+    // Prepare multi-part form data for Groq - like creating a dict for requests.post(files=...)
     const groqFormData = new FormData();
     groqFormData.append('file', new Blob([arrayBuffer], { type: file.type }), 'audio.webm');
-    groqFormData.append('model', 'whisper-large-v3');
+    groqFormData.append('model', 'whisper-large-v3'); // High-accuracy model
 
+    // Send to Groq for Speech-to-Text
     const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
-        // @ts-ignore
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: groqFormData,
@@ -40,15 +52,17 @@ export default async function handler(req: Request) {
 
     const data = await groqResponse.json();
 
-    if (data.error) {
-      console.error("Groq Whisper error:", data.error);
-      throw new Error(data.error.message || 'Transcription error');
+    if (!groqResponse.ok || data.error) {
+      console.error("Groq Whisper error:", data.error || data);
+      return new Response(JSON.stringify({ error: data.error?.message || 'Transcription failed' }), {
+        status: groqResponse.status || 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     let transcribedText = data.text || "";
 
-    // RESTORED STRICT HALLUCINATION FILTER:
-    // Whisper often returns these phrases when there is background noise but no speech.
+    // --- Python Analogy: This is a simple list of strings to filter noise ---
     const hallucinations = [
       "thank you.",
       "thanks for watching.", 
@@ -63,19 +77,19 @@ export default async function handler(req: Request) {
     ];
     
     const cleanText = transcribedText.toLowerCase().trim();
-    
-    // If the text is extremely short or matches a known hallucination, treat it as empty.
+    // If the text is just noise or a common "Whisper hallucination", ignore it
     if (cleanText.length < 2 || hallucinations.some(h => cleanText === h)) {
       transcribedText = "";
     }
 
+    // Return the clean text to the frontend
     return new Response(JSON.stringify({ text: transcribedText }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
     console.error("Transcription Handler error:", error);
-    return new Response(JSON.stringify({ error: error.message || 'Failed to transcribe' }), {
+    return new Response(JSON.stringify({ error: error.message || 'Internal Server Error' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
