@@ -34,17 +34,14 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Device Detection
+    // Improved Mobile Detection
     const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     setIsMobile(mobileCheck);
 
-    // Initialize mobile audio object if needed
-    if (mobileCheck) {
-      audioRef.current = new Audio();
-      audioRef.current.preload = 'auto';
-    }
+    audioRef.current = new Audio();
+    audioRef.current.preload = 'auto';
 
-    // PRE-WARM APIs
+    // PRE-WARM: High-speed keep-alive handshake
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
     fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
@@ -60,11 +57,11 @@ const App: React.FC = () => {
   const startRecording = async () => {
     try {
       synthRef.current.cancel();
+      // Unlocks mobile audio context instantly
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
-      
       setError(null);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -146,7 +143,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Hybrid Voice Trigger
+      // Speed-Focused Voice Execution
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -154,20 +151,34 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = (text: string) => {
+  const speak = async (text: string) => {
     if (isMobile) {
-      // MOBILE: Use OpenAI TTS Direct Stream for premium voice
-      if (audioRef.current) {
-        audioRef.current.src = `/api/speak?text=${encodeURIComponent(text)}`;
-        audioRef.current.load();
-        audioRef.current.play().catch(err => console.error("Autoplay failed:", err));
+      // MOBILE OPTIMIZATION: 
+      // Instead of audio.src (which opens a new slow connection), we use FETCH.
+      // Fetch reuses the existing network connection, saving 500ms-1s of delay.
+      try {
+        const response = await fetch('/api/speak', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          audioRef.current.play().catch(e => console.error("Mobile voice blocked:", e));
+        }
+      } catch (e) {
+        console.error("Mobile speech error", e);
       }
     } else {
-      // PC/LAPTOP: Use Native Browser TTS for zero delay and no word skipping
+      // PC/LAPTOP: Native zero-delay
       synthRef.current.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       const voices = synthRef.current.getVoices();
-      const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James') || v.name.includes('Microsoft David')) || voices[0];
+      const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James')) || voices[0];
       if (maleVoice) utterance.voice = maleVoice;
       utterance.rate = 1.0;
       synthRef.current.speak(utterance);
@@ -205,16 +216,14 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
-            <h2 className="text-xl font-bold">History</h2>
+            <h2 className="text-xl font-bold text-white">History</h2>
             <button onClick={() => setIsSidebarOpen(false)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><X size={24} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2">

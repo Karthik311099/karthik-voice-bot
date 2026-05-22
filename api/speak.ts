@@ -3,40 +3,24 @@ export const config = {
 };
 
 export default async function handler(req: Request) {
-  const url = new URL(req.url);
-  let text = '';
-
-  if (req.method === 'POST') {
-    try {
-      const body = await req.json();
-      text = body.text;
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
-    }
-  } else {
-    text = url.searchParams.get('text') || '';
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'OPENAI_API_KEY is missing.' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  if (!text) {
-    return new Response(JSON.stringify({ error: 'No text provided' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
   try {
-    // Switching to 'opus' format. 
-    // Opus is the industry standard for low-latency audio (used by Discord/WhatsApp).
-    // It is MUCH smaller than MP3, so it starts playing almost instantly on mobile networks.
+    const { text } = await req.json();
+    const apiKey = process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: 'OPENAI_API_KEY missing.' }), { status: 500 });
+    }
+
+    if (!text) {
+      return new Response(JSON.stringify({ error: 'No text provided' }), { status: 400 });
+    }
+
+    // Using MP3 for broader mobile hardware decoding support
+    // model: tts-1 is optimized for speed
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -44,10 +28,10 @@ export default async function handler(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1', // High-speed model
+        model: 'tts-1',
         input: text,
-        voice: 'onyx', 
-        response_format: 'opus', // <--- Change to Opus for speed
+        voice: 'onyx',
+        response_format: 'mp3',
       }),
     });
 
@@ -56,15 +40,15 @@ export default async function handler(req: Request) {
       throw new Error(errorData.error?.message || 'OpenAI API error');
     }
 
+    // Direct body stream for lowest latency
     return new Response(response.body, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/ogg', // Opus is served in an Ogg container
-        'Cache-Control': 'public, max-age=3600',
+        'Content-Type': 'audio/mpeg',
+        'Cache-Control': 'no-cache',
       },
     });
   } catch (error: any) {
-    console.error("OpenAI TTS error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
