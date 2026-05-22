@@ -45,7 +45,29 @@ export default async function handler(req: Request) {
       throw new Error(data.error.message || 'Transcription error');
     }
 
-    return new Response(JSON.stringify({ text: data.text }), {
+    let transcribedText = data.text || "";
+
+    // HALLUCINATION FILTER:
+    // Whisper is known to return "Thank you." or "Thanks for watching." when there is background noise but no speech.
+    const hallucinations = [
+      "thank you.", 
+      "thanks for watching.", 
+      "subtitle by", 
+      "[silence]", 
+      "[music]", 
+      "you", 
+      "the", 
+      "."
+    ];
+    
+    const cleanText = transcribedText.toLowerCase().trim();
+    
+    // If text is too short or is a known hallucination, treat it as empty
+    if (cleanText.length < 2 || hallucinations.some(h => cleanText === h)) {
+      transcribedText = "";
+    }
+
+    return new Response(JSON.stringify({ text: transcribedText }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
