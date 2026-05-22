@@ -78,6 +78,12 @@ export default async function handler(req: Request) {
       "it",
       "so",
       "by",
+      "watched",
+      "watching",
+      "video",
+      "next",
+      "god bless",
+      "have a nice",
       "[silence]",
       "[music]",
       "[bgm]",
@@ -95,7 +101,9 @@ export default async function handler(req: Request) {
       hallucinations.some(h => normalizedText === h) ||
       normalizedText.includes("thanks for watching") ||
       normalizedText.includes("subtitle by") ||
-      normalizedText.includes("subtitles by")
+      normalizedText.includes("subtitles by") ||
+      normalizedText.includes("thank you for watching") ||
+      normalizedText.includes("subscribe to")
     ) {
       transcribedText = "";
     }

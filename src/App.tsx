@@ -114,8 +114,14 @@ const App: React.FC = () => {
       }
       setError(null);
       
-      // Request mic access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request mic access with hardware-level noise suppression (Crucial for PC)
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
       
