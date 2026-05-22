@@ -24,3 +24,14 @@ dist-ssr
 *.sw?
 .env
 .vercel
+
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
