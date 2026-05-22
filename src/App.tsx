@@ -232,7 +232,6 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 text-slate-400 hover:text-white bg-slate-800 rounded-lg"><Menu size={24} /></button>
             <h1 className="text-lg font-bold text-white tracking-tight uppercase">Karthik AI</h1>
           </div>
-          <button onClick={() => { if (audioRef.current) audioRef.current.pause(); setCurrentChat([]); setShowPlayButton(false); }} className="p-2 text-slate-500 hover:text-red-400"><Trash2 size={20} /></button>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center">
@@ -241,8 +240,8 @@ const App: React.FC = () => {
               <div className="flex flex-col items-center justify-center py-20 text-center space-y-6 animate-in fade-in zoom-in duration-500">
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-tight">Karthik's AI Persona</h2>
-                  <p className="text-slate-500 text-sm mt-2">Zero-Delay Neural Voice Integration</p>
+                  <h2 className="text-2xl font-bold text-white tracking-tight">Interactive AI Voice Assistant</h2>
+                  <p className="text-slate-500 text-sm mt-2">Hello, this is Karthik Murugesan, an AI-powered voice chatbot for real-time conversations.</p>
                 </div>
               </div>
             )}
