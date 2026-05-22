@@ -57,25 +57,27 @@ You are in a live interview with the 100x AI Agent Team. You are Karthik Muruges
         model: "llama-3.1-8b-instant",
         temperature: 0.7,
         max_tokens: 500,
+        stream: true, // Enable streaming
       }),
     });
 
-    const data = await groqResponse.json();
-    
-    if (data.error) {
-      console.error("Groq API error details:", data.error);
-      throw new Error(data.error.message || 'Groq API error');
+    if (!groqResponse.ok) {
+      const errorData = await groqResponse.json();
+      throw new Error(errorData.error?.message || 'Groq API error');
     }
 
-    const response = data.choices[0]?.message?.content || "";
-
-    return new Response(JSON.stringify({ response }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
+    // Return the raw stream to the frontend
+    return new Response(groqResponse.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
+
   } catch (error: any) {
-    console.error("Handler error:", error);
-    return new Response(JSON.stringify({ error: error.message || 'Failed to fetch response from AI' }), {
+    console.error("Chat Handler error:", error);
+    return new Response(JSON.stringify({ error: error.message || 'Failed to fetch response' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

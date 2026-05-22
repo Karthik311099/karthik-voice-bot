@@ -22,46 +22,34 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
 
+  // Refs for logic
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  
+  // Streaming & Queue Refs
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sentenceBufferRef = useRef('');
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
+    
+    const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    setIsMobile(mobileCheck);
 
-    const findBestMaleVoice = () => {
-      const voices = synthRef.current.getVoices();
-      
-      // AGGRESSIVE MALE VOICE HUNTER (Android, iOS, PC)
-      const maleVoice = 
-        // 1. Android / Samsung Male IDs
-        voices.find(v => v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local') || (v.name.includes('Samsung') && v.name.toLowerCase().includes('male'))) ||
-        // 2. iOS / Safari Male IDs
-        voices.find(v => v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron')) ||
-        // 3. Desktop / Windows Male IDs
-        voices.find(v => v.name.includes('David') || v.name.includes('James')) ||
-        // 4. Keyword Search
-        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
-        // 5. English US Fallback
-        voices.find(v => v.lang.startsWith('en-US')) ||
-        voices[0];
-      
-      if (maleVoice) {
-        setSelectedVoice(maleVoice);
-      }
-    };
+    audioRef.current = new Audio();
+    audioRef.current.onended = () => playNextInQueue();
 
-    findBestMaleVoice();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = findBestMaleVoice;
-    }
-
-    // PRE-WARM Chat API
+    // PRE-WARM APIs
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
+    fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -73,12 +61,30 @@ const App: React.FC = () => {
   }, [currentChat, isLoading]);
 
   const stopAllSpeech = () => {
+    // Stop Native TTS
     synthRef.current.cancel();
+    // Stop Streaming Audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    // Clear Queues
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    sentenceBufferRef.current = '';
+    // Abort ongoing text stream
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
   };
 
   const startRecording = async () => {
     try {
       stopAllSpeech();
+      // Unlock mobile audio
+      if (audioRef.current) {
+        audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
+      }
       setError(null);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -129,26 +135,87 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async (text: string) => {
+    stopAllSpeech();
     const newMessages: Message[] = [...currentChat, { role: 'user', content: text }];
     setCurrentChat(newMessages);
     setIsLoading(true);
+
+    abortControllerRef.current = new AbortController();
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: newMessages }),
+        signal: abortControllerRef.current.signal
       });
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
 
-      const botMessage = data.response;
-      const finalMessages: Message[] = [...newMessages, { role: 'assistant', content: botMessage }];
-      setCurrentChat(finalMessages);
-      setIsLoading(false); 
-      
+      if (!response.ok) throw new Error('Chat failed');
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader');
+
+      let fullText = '';
+      setIsLoading(false); // Hide thinking as tokens arrive
+
+      // Start Assistant Message placeholder
+      setCurrentChat(prev => [...prev, { role: 'assistant', content: '' }]);
+
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n').filter(l => l.trim() !== '');
+        
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const dataStr = line.replace('data: ', '');
+          if (dataStr === '[DONE]') break;
+          
+          try {
+            const data = JSON.parse(dataStr);
+            const token = data.choices[0]?.delta?.content || '';
+            if (token) {
+              fullText += token;
+              sentenceBufferRef.current += token;
+              
+              // Update UI
+              setCurrentChat(prev => {
+                const updated = [...prev];
+                updated[updated.length - 1].content = fullText;
+                return updated;
+              });
+
+              // SENTENCE DETECTION FOR MOBILE
+              if (isMobile) {
+                // Check if buffer contains sentence end
+                if (/[.!?\n]/.test(token)) {
+                  const sentence = sentenceBufferRef.current.trim();
+                  if (sentence.length > 5) {
+                    fetchAudioForSentence(sentence);
+                    sentenceBufferRef.current = '';
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+      }
+
+      // Final cleanup for any leftover text in buffer
+      if (isMobile && sentenceBufferRef.current.trim().length > 0) {
+        fetchAudioForSentence(sentenceBufferRef.current.trim());
+      } else if (!isMobile) {
+        // PC: Speak full text at once using native TTS (zero latency)
+        speakNative(fullText);
+      }
+
+      // Sync to history
+      const finalMessages: Message[] = [...newMessages, { role: 'assistant', content: fullText }];
       if (activeSessionId) {
-        setHistory(prev => prev.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
+        setHistory(h => h.map(s => s.id === activeSessionId ? { ...s, messages: finalMessages } : s));
       } else {
         const newSession: ChatSession = {
           id: Date.now().toString(),
@@ -159,24 +226,54 @@ const App: React.FC = () => {
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(newSession.id);
       }
-      
-      speak(botMessage);
+
     } catch (err: any) {
-      setError('AI Error: ' + err.message);
+      if (err.name !== 'AbortError') {
+        setError('AI Error: ' + err.message);
+      }
       setIsLoading(false);
     }
   };
 
-  const speak = (text: string) => {
-    stopAllSpeech();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
+  // --- Voice Pipeline (Mobile: OpenAI Sentence-by-Sentence) ---
+  const fetchAudioForSentence = async (text: string) => {
+    try {
+      const response = await fetch('/api/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      audioQueueRef.current.push(url);
+      if (!isPlayingRef.current) {
+        playNextInQueue();
+      }
+    } catch (e) {}
+  };
+
+  const playNextInQueue = () => {
+    if (audioQueueRef.current.length === 0) {
+      isPlayingRef.current = false;
+      return;
     }
-    // Professional high-quality tuning
+    const nextUrl = audioQueueRef.current.shift();
+    if (nextUrl && audioRef.current) {
+      isPlayingRef.current = true;
+      audioRef.current.src = nextUrl;
+      audioRef.current.play().catch(() => {
+        isPlayingRef.current = false;
+      });
+    }
+  };
+
+  // --- Voice Pipeline (PC: Native Zero-Delay) ---
+  const speakNative = (text: string) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = synthRef.current.getVoices();
+    const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James')) || voices[0];
+    if (maleVoice) utterance.voice = maleVoice;
     utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
     synthRef.current.speak(utterance);
   };
 
@@ -208,7 +305,6 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
-      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
@@ -253,7 +349,7 @@ const App: React.FC = () => {
                 <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse"><Bot size={32} className="text-white" /></div>
                 <div>
                   <h2 className="text-2xl font-bold text-white tracking-tight">Interactive AI Voice Assistant</h2>
-                  <p className="text-slate-500 text-sm mt-2">Hello, this is Karthik Murugesan, an AI-powered voice chatbot for real-time conversations.</p>
+                  <p className="text-slate-500 text-sm mt-2 text-center max-w-md">Hello, this is Karthik Murugesan, an AI-powered voice chatbot for real-time conversations.</p>
                 </div>
               </div>
             )}
@@ -300,9 +396,9 @@ const App: React.FC = () => {
           </button>
           
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
-            {isListening ? 'Tap to finish' : 'Tap to speak'}
+            {isListening ? 'Tap to finish' : 'Tap to start'}
           </p>
-          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
