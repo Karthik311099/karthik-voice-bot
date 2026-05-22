@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, Trash2, X, Menu, Plus, MessageSquare, Volume2 } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,22 +22,29 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showPlayButton, setShowPlayButton] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Initialize audio object once
-    audioRef.current = new Audio();
-    audioRef.current.preload = 'auto';
+    // Device Detection
+    const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    setIsMobile(mobileCheck);
 
-    // PRE-WARM: Wake up the APIs immediately on page load
+    // Initialize mobile audio object if needed
+    if (mobileCheck) {
+      audioRef.current = new Audio();
+      audioRef.current.preload = 'auto';
+    }
+
+    // PRE-WARM APIs
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
     fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
@@ -52,16 +59,13 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      // PRE-WARM: Ping the voice API again as soon as user starts talking
-      fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
-
+      synthRef.current.cancel();
       if (audioRef.current) {
         audioRef.current.pause();
-        // Prime audio player on user click to unlock mobile speakers
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
+      
       setError(null);
-      setShowPlayButton(false);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
@@ -102,7 +106,6 @@ const App: React.FC = () => {
       else setError('No speech detected.');
     } catch (err: any) {
       setError('Transcription failed: ' + err.message);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -139,7 +142,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Zero-Delay Voice Trigger
+      // Hybrid Voice Trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -148,45 +151,50 @@ const App: React.FC = () => {
   };
 
   const speak = (text: string) => {
-    if (!audioRef.current) return;
-
-    // DIRECT STREAMING: We point the audio player directly to the API URL.
-    // This allows the browser to start playing as soon as the first few bytes arrive.
-    // No more waiting for full 'fetch' downloads!
-    const audioUrl = `/api/speak?text=${encodeURIComponent(text)}`;
-    
-    audioRef.current.src = audioUrl;
-    audioRef.current.play().catch(err => {
-      console.warn("Autoplay blocked, showing play icon.", err);
-      setShowPlayButton(true);
-    });
+    if (isMobile) {
+      // MOBILE: Use OpenAI TTS Direct Stream for premium voice
+      if (audioRef.current) {
+        audioRef.current.src = `/api/speak?text=${encodeURIComponent(text)}`;
+        audioRef.current.load();
+        audioRef.current.play().catch(err => console.error("Autoplay failed:", err));
+      }
+    } else {
+      // PC/LAPTOP: Use Native Browser TTS for zero delay and no word skipping
+      synthRef.current.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      const voices = synthRef.current.getVoices();
+      const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James') || v.name.includes('Microsoft David')) || voices[0];
+      if (maleVoice) utterance.voice = maleVoice;
+      utterance.rate = 1.0;
+      synthRef.current.speak(utterance);
+    }
   };
 
   const startNewChat = () => {
+    synthRef.current.cancel();
     if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
     setError(null);
-    setShowPlayButton(false);
   };
 
   const loadSession = (session: ChatSession) => {
+    synthRef.current.cancel();
     if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
-    setShowPlayButton(false);
   };
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    synthRef.current.cancel();
     if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
       setActiveSessionId(null);
-      setShowPlayButton(false);
     }
   };
 
@@ -195,10 +203,7 @@ const App: React.FC = () => {
       
       {/* Sidebar Overlay */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-          onClick={() => setIsSidebarOpen(false)}
-        ></div>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
       {/* Sidebar */}
@@ -273,13 +278,6 @@ const App: React.FC = () => {
 
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
           
-          {showPlayButton && (
-             <button onClick={() => { if (audioRef.current) audioRef.current.play(); setShowPlayButton(false); }} className="flex items-center space-x-2 text-indigo-400 font-bold mb-4 animate-bounce bg-slate-800/50 px-4 py-2 rounded-full border border-indigo-500/30">
-                <Volume2 size={20} />
-                <span>Tap to play response</span>
-             </button>
-          )}
-
           {isListening && (
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
