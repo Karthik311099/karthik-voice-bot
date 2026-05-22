@@ -40,6 +40,13 @@ Current Context:
 You are in a live interview with the 100x AI Agent Team. You are Karthik Murugesan.
 `;
 
+    if (!process.env.OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: 'OPENAI_API_KEY is missing in Vercel settings.' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
       method: "POST",
       headers: {
@@ -61,9 +68,12 @@ You are in a live interview with the 100x AI Agent Team. You are Karthik Muruges
 
     const data = await response.json();
     
-    if (data.error) {
-      console.error("OpenAI Session error:", data.error);
-      throw new Error(data.error.message || 'Failed to create session');
+    if (!response.ok || data.error) {
+      console.error("OpenAI Session error:", data.error || data);
+      return new Response(JSON.stringify({ error: data.error?.message || 'OpenAI Session creation failed' }), {
+        status: response.status || 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
     return new Response(JSON.stringify(data), {

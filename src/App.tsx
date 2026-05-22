@@ -76,6 +76,11 @@ const App: React.FC = () => {
       // 1. Get Session Token
       const tokenResponse = await fetch('/api/session', { method: 'POST' });
       const sessionData = await tokenResponse.json();
+      
+      if (!sessionData.client_secret) {
+        throw new Error(sessionData.error || 'OpenAI Session Token could not be generated. Check your API Key.');
+      }
+
       const EPHEMERAL_KEY = sessionData.client_secret.value;
 
       // 2. Create Peer Connection
