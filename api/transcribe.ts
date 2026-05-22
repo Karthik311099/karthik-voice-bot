@@ -48,22 +48,21 @@ export default async function handler(req: Request) {
     let transcribedText = data.text || "";
 
     // HALLUCINATION FILTER:
-    // Whisper is known to return "Thank you." or "Thanks for watching." when there is background noise but no speech.
+    // Whisper is known to return specific strings when there is background noise but no speech.
     const hallucinations = [
-      "thank you.", 
       "thanks for watching.", 
       "subtitle by", 
+      "subtitles by",
       "[silence]", 
-      "[music]", 
-      "you", 
-      "the", 
-      "."
+      "[music]",
+      "[bgm]"
     ];
     
-    const cleanText = transcribedText.toLowerCase().trim();
+    const cleanText = transcribedText.toLowerCase().trim().replace(/[.,!?;]$/, "");
     
-    // If text is too short or is a known hallucination, treat it as empty
-    if (cleanText.length < 2 || hallucinations.some(h => cleanText === h)) {
+    // If the text is one of the known hallucinations, treat it as empty.
+    // Otherwise, let even short polite words like "Thanks" or "Hi" through.
+    if (hallucinations.some(h => cleanText === h || cleanText.includes(h))) {
       transcribedText = "";
     }
 
