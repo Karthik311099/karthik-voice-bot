@@ -26,7 +26,7 @@ const App: React.FC = () => {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
@@ -34,14 +34,10 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
     
-    // Improved Mobile Detection
     const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     setIsMobile(mobileCheck);
 
-    audioRef.current = new Audio();
-    audioRef.current.preload = 'auto';
-
-    // PRE-WARM: High-speed keep-alive handshake
+    // PRE-WARM APIs
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
     fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
@@ -54,14 +50,26 @@ const App: React.FC = () => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, isLoading]);
 
+  // UNLOCK AUDIO SYSTEM (Crucial for Mobile)
+  const unlockAudio = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    // Play a silent buffer to fully prime the system
+    const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
+    const source = audioContextRef.current.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContextRef.current.destination);
+    source.start(0);
+  };
+
   const startRecording = async () => {
     try {
+      unlockAudio(); // Trigger on user gesture
       synthRef.current.cancel();
-      // Unlocks mobile audio context instantly
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
-      }
       setError(null);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -143,7 +151,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Speed-Focused Voice Execution
+      // Professional Voice Trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -153,9 +161,7 @@ const App: React.FC = () => {
 
   const speak = async (text: string) => {
     if (isMobile) {
-      // MOBILE OPTIMIZATION: 
-      // Instead of audio.src (which opens a new slow connection), we use FETCH.
-      // Fetch reuses the existing network connection, saving 500ms-1s of delay.
+      // MOBILE: Professional Web Audio API Playback
       try {
         const response = await fetch('/api/speak', {
           method: 'POST',
@@ -163,15 +169,16 @@ const App: React.FC = () => {
           body: JSON.stringify({ text }),
         });
         
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        
-        if (audioRef.current) {
-          audioRef.current.src = url;
-          audioRef.current.play().catch(e => console.error("Mobile voice blocked:", e));
+        const arrayBuffer = await response.arrayBuffer();
+        if (audioContextRef.current) {
+          const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+          const source = audioContextRef.current.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContextRef.current.destination);
+          source.start(0);
         }
       } catch (e) {
-        console.error("Mobile speech error", e);
+        console.error("Mobile WebAudio error", e);
       }
     } else {
       // PC/LAPTOP: Native zero-delay
@@ -187,7 +194,6 @@ const App: React.FC = () => {
 
   const startNewChat = () => {
     synthRef.current.cancel();
-    if (audioRef.current) audioRef.current.pause();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -196,7 +202,6 @@ const App: React.FC = () => {
 
   const loadSession = (session: ChatSession) => {
     synthRef.current.cancel();
-    if (audioRef.current) audioRef.current.pause();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -205,7 +210,6 @@ const App: React.FC = () => {
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     synthRef.current.cancel();
-    if (audioRef.current) audioRef.current.pause();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
@@ -216,10 +220,12 @@ const App: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-[#020617] text-slate-200 font-sans flex overflow-hidden w-full h-full">
       
+      {/* Sidebar Overlay */}
       {isSidebarOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsSidebarOpen(false)}></div>
       )}
 
+      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-full sm:w-80 bg-slate-900 border-r border-slate-800 transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex flex-col h-full">
           <div className="p-6 border-b border-slate-800 flex items-center justify-between">
