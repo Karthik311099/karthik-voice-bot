@@ -167,7 +167,7 @@ const App: React.FC = () => {
 
   // --- Logic to send text to Groq and stream the response ---
   const handleSendMessage = async (text: string) => {
-    stopAllSpeech();
+    stopAllActivity();
     const newMessages: Message[] = [...currentChat, { role: 'user', content: text }];
     setCurrentChat(newMessages);
     setIsLoading(true);
