@@ -55,7 +55,8 @@ You are in a live interview with the 100x AI Agent Team. You are Karthik Muruges
       },
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
-        voice: "ash", // Changed from onyx to ash (supported male voice)
+        modalities: ["text", "audio"], // Mandatory for GA
+        voice: "ash",
         instructions: systemPrompt,
         turn_detection: {
           type: "server_vad",
