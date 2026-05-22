@@ -37,6 +37,11 @@ const App: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sentenceBufferRef = useRef('');
 
+  // Sequencing Refs (GUARANTEES ORDER ON MOBILE)
+  const sentenceDispatchIndexRef = useRef(0);
+  const nextExpectedIndexRef = useRef(0);
+  const audioBufferMapRef = useRef<Record<number, string>>({});
+
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
@@ -68,10 +73,14 @@ const App: React.FC = () => {
       audioRef.current.pause();
       audioRef.current.src = '';
     }
-    // Clear Queues
+    // Clear Queues & Ordering
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     sentenceBufferRef.current = '';
+    sentenceDispatchIndexRef.current = 0;
+    nextExpectedIndexRef.current = 0;
+    audioBufferMapRef.current = {};
+
     // Abort ongoing text stream
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -162,7 +171,7 @@ const App: React.FC = () => {
       setCurrentChat(prev => [...prev, { role: 'assistant', content: '' }]);
 
       const decoder = new TextDecoder();
-      let streamBuffer = ''; // BUFFER FOR PARTIAL CHUNKS
+      let streamBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -171,7 +180,6 @@ const App: React.FC = () => {
         streamBuffer += decoder.decode(value, { stream: true });
         
         const lines = streamBuffer.split('\n');
-        // Keep the last partial line in the buffer
         streamBuffer = lines.pop() || '';
         
         for (const line of lines) {
@@ -188,31 +196,32 @@ const App: React.FC = () => {
               fullText += token;
               sentenceBufferRef.current += token;
               
-              // Update UI (Direct update for speed)
               setCurrentChat(prev => {
                 const updated = [...prev];
                 updated[updated.length - 1].content = fullText;
                 return updated;
               });
 
-              // ROBUST SENTENCE DETECTION (Mobile Only)
               if (isMobile) {
-                // Trigger audio if we find punctuation AND buffer is long enough
-                if (/[.!?\n]/.test(token) && sentenceBufferRef.current.trim().length > 10) {
-                  fetchAudioForSentence(sentenceBufferRef.current.trim());
-                  sentenceBufferRef.current = '';
+                // SENSITIVE SENTENCE DETECTION
+                // We dispatch if we hit punctuation OR if the buffer is getting too long (for speed)
+                if (/[.!?\n]/.test(token) || sentenceBufferRef.current.length > 80) {
+                  const sentence = sentenceBufferRef.current.trim();
+                  if (sentence.length > 2) {
+                    const myIndex = sentenceDispatchIndexRef.current++;
+                    fetchAudioForSentence(sentence, myIndex);
+                    sentenceBufferRef.current = '';
+                  }
                 }
               }
             }
-          } catch (e) {
-            // console.error("Parse error", e, dataStr);
-          }
+          } catch (e) {}
         }
       }
 
-      // Final cleanup for any leftover text
       if (isMobile && sentenceBufferRef.current.trim().length > 0) {
-        fetchAudioForSentence(sentenceBufferRef.current.trim());
+        const myIndex = sentenceDispatchIndexRef.current++;
+        fetchAudioForSentence(sentenceBufferRef.current.trim(), myIndex);
       } else if (!isMobile) {
         speakNative(fullText);
       }
@@ -240,8 +249,8 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Voice Pipeline (Mobile: OpenAI Sentence-by-Sentence) ---
-  const fetchAudioForSentence = async (text: string) => {
+  // --- Voice Pipeline (Mobile: OpenAI Sentence-by-Sentence with Indexing) ---
+  const fetchAudioForSentence = async (text: string, index: number) => {
     try {
       const response = await fetch('/api/speak', {
         method: 'POST',
@@ -250,11 +259,28 @@ const App: React.FC = () => {
       });
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      audioQueueRef.current.push(url);
-      if (!isPlayingRef.current) {
-        playNextInQueue();
-      }
+      
+      // Store in buffer map using its unique index
+      audioBufferMapRef.current[index] = url;
+      
+      // Try to move anything from buffer to the playable queue in correct order
+      processAudioBuffer();
     } catch (e) {}
+  };
+
+  const processAudioBuffer = () => {
+    // Move URLs from Map to Queue strictly in index order
+    while (audioBufferMapRef.current[nextExpectedIndexRef.current]) {
+      const nextUrl = audioBufferMapRef.current[nextExpectedIndexRef.current];
+      audioQueueRef.current.push(nextUrl);
+      delete audioBufferMapRef.current[nextExpectedIndexRef.current];
+      nextExpectedIndexRef.current++;
+    }
+
+    // If nothing is playing, start the queue
+    if (!isPlayingRef.current) {
+      playNextInQueue();
+    }
   };
 
   const playNextInQueue = () => {
@@ -268,11 +294,11 @@ const App: React.FC = () => {
       audioRef.current.src = nextUrl;
       audioRef.current.play().catch(() => {
         isPlayingRef.current = false;
+        playNextInQueue(); // Skip and try next if blocked
       });
     }
   };
 
-  // --- Voice Pipeline (PC: Native Zero-Delay) ---
   const speakNative = (text: string) => {
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = synthRef.current.getVoices();
@@ -403,7 +429,7 @@ const App: React.FC = () => {
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
             {isListening ? 'Tap to finish' : 'Tap to start'}
           </p>
-          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
