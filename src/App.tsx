@@ -102,10 +102,14 @@ const App: React.FC = () => {
       const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
-      if (data.text?.trim()) await handleSendMessage(data.text);
-      else setError('No speech detected.');
+      if (data.text?.trim()) {
+        await handleSendMessage(data.text);
+      } else {
+        setError('No speech detected.');
+      }
     } catch (err: any) {
       setError('Transcription failed: ' + err.message);
+    } finally {
       setIsLoading(false);
     }
   };
