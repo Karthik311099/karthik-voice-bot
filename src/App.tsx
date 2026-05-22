@@ -437,6 +437,13 @@ const App: React.FC = () => {
           </div>
         </main>
 
+        {/* Privacy Note for 100x Assessment */}
+        <footer className="py-2 text-center bg-slate-950/20 border-t border-slate-800/50">
+           <p className="text-[9px] text-slate-600 uppercase tracking-widest font-medium">
+             Usage data is logged for improvement and assessment purposes.
+           </p>
+        </footer>
+
         <div className="p-6 bg-slate-950/40 backdrop-blur-xl border-t border-slate-800 flex flex-col items-center">
           
           {isListening && (

@@ -49,6 +49,11 @@ Current Context:
 You are in a live interview with the 100x AI Agent Team. You are Karthik Murugesan.
 `;
 
+    // --- LOGGING PREPARATION ---
+    // Extract the latest message to log it to Redis
+    const lastUserMessage = messages[messages.length - 1]?.content || "Unknown";
+    const userAgent = req.headers.get('user-agent') || 'Unknown Device';
+
     // Equivalent to: response = requests.post("groq_url", json=payload, headers=auth)
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -64,7 +69,7 @@ You are in a live interview with the 100x AI Agent Team. You are Karthik Muruges
         model: "llama-3.1-8b-instant",
         temperature: 0.7,
         max_tokens: 500,
-        stream: true, // This enables token-by-token streaming (like a typing effect)
+        stream: true, // This enables token-by-token streaming
       }),
     });
 
@@ -73,7 +78,23 @@ You are in a live interview with the 100x AI Agent Team. You are Karthik Muruges
       throw new Error(errorData.error?.message || 'Groq API error');
     }
 
-    // Return the raw stream to the frontend - same as a StreamingResponse in FastAPI
+    // --- BACKGROUND LOGGING (Upstash Redis) ---
+    // This sends the data to your Redis database without making the user wait.
+    if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+      const logEntry = {
+        timestamp: new Date().toISOString(),
+        user_query: lastUserMessage,
+        device: userAgent
+      };
+      
+      // Fire-and-forget log call
+      fetch(`${process.env.UPSTASH_REDIS_REST_URL}/lpush/chat_logs/${encodeURIComponent(JSON.stringify(logEntry))}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_TOKEN}` }
+      }).catch(() => {}); // Quietly fail if logging has issues
+    }
+
+    // Return the raw stream to the frontend
     return new Response(groqResponse.body, {
       headers: {
         'Content-Type': 'text/event-stream',
