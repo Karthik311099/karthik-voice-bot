@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare, Trash2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
