@@ -62,43 +62,44 @@ export default async function handler(req: Request) {
 
     let transcribedText = data.text || "";
 
-    // --- ENHANCED SILENCE GATE: Blocks common Whisper "hallucinations" during silence ---
-    // Whisper is extremely sensitive and often "invents" these phrases from background hum.
-    const strictHallucinations = [
-      "thank you.",
-      "thanks for watching.", 
-      "subtitle by", 
-      "subtitles by",
+    // --- AGGRESSIVE SILENCE GUARD: Prevents Whisper from "inventing" speech from noise ---
+    const hallucinations = [
+      "thank you",
+      "thanks for watching",
+      "subtitle",
       "subscribe",
       "you",
       "the",
       "um",
       "uh",
+      "is",
       "a",
       "i",
-      "is",
-      "[silence]", 
+      "it",
+      "so",
+      "by",
+      "[silence]",
       "[music]",
       "[bgm]",
       "."
     ];
-    
-    // Normalize text for comparison: remove trailing dots, lowercase, trim
-    const cleanText = transcribedText.toLowerCase().trim().replace(/\.+$/, "");
-    
-    // 1. Block if it's an exact match for a known hallucination
-    // 2. Block if it's extremely short (Whisper often hallucinates a single common word)
-    // 3. Block if it contains known long-form hallucinations like "Thanks for watching"
+
+    // Normalize: remove all punctuation, lowercase, and trim
+    const normalizedText = transcribedText.toLowerCase().replace(/[.,!?;]/g, "").trim();
+
+    // 1. Block extremely short hallucinations (Whisper often invents 1-2 common words)
+    // 2. Block exact matches for known hallucination strings
+    // 3. Block if the string contains common long-form hallucinations
     if (
-      cleanText.length <= 2 || 
-      strictHallucinations.some(h => cleanText === h.replace(/\.+$/, "")) ||
-      cleanText.includes("thanks for watching") ||
-      cleanText.includes("subtitle by")
+      normalizedText.length <= 3 || 
+      hallucinations.some(h => normalizedText === h) ||
+      normalizedText.includes("thanks for watching") ||
+      normalizedText.includes("subtitle by") ||
+      normalizedText.includes("subtitles by")
     ) {
       transcribedText = "";
     }
 
-    // Return the clean text to the frontend
     return new Response(JSON.stringify({ text: transcribedText }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
