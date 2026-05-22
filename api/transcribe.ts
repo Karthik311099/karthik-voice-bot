@@ -62,23 +62,39 @@ export default async function handler(req: Request) {
 
     let transcribedText = data.text || "";
 
-    // --- Python Analogy: This is a simple list of strings to filter noise ---
-    const hallucinations = [
+    // --- ENHANCED SILENCE GATE: Blocks common Whisper "hallucinations" during silence ---
+    // Whisper is extremely sensitive and often "invents" these phrases from background hum.
+    const strictHallucinations = [
       "thank you.",
       "thanks for watching.", 
       "subtitle by", 
       "subtitles by",
+      "subscribe",
       "you",
       "the",
+      "um",
+      "uh",
+      "a",
+      "i",
+      "is",
       "[silence]", 
       "[music]",
       "[bgm]",
       "."
     ];
     
-    const cleanText = transcribedText.toLowerCase().trim();
-    // If the text is just noise or a common "Whisper hallucination", ignore it
-    if (cleanText.length < 2 || hallucinations.some(h => cleanText === h)) {
+    // Normalize text for comparison: remove trailing dots, lowercase, trim
+    const cleanText = transcribedText.toLowerCase().trim().replace(/\.+$/, "");
+    
+    // 1. Block if it's an exact match for a known hallucination
+    // 2. Block if it's extremely short (Whisper often hallucinates a single common word)
+    // 3. Block if it contains known long-form hallucinations like "Thanks for watching"
+    if (
+      cleanText.length <= 2 || 
+      strictHallucinations.some(h => cleanText === h.replace(/\.+$/, "")) ||
+      cleanText.includes("thanks for watching") ||
+      cleanText.includes("subtitle by")
+    ) {
       transcribedText = "";
     }
 
