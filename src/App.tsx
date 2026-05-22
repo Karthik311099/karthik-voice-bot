@@ -71,13 +71,25 @@ const App: React.FC = () => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, isLoading]);
 
-  // Kills all active sound and text generation immediately
-  const stopAllSpeech = () => {
+  // Kills all active sound, recording, and text generation immediately
+  const stopAllActivity = () => {
+    // 1. Stop Recording (The Mic)
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      // Remove the onstop listener so it doesn't trigger transcription
+      mediaRecorderRef.current.onstop = null; 
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+    setIsListening(false);
+
+    // 2. Stop Voice Playback
     synthRef.current.cancel(); // Stop PC native voice
     if (audioRef.current) {
       audioRef.current.pause(); // Stop Mobile streaming voice
       audioRef.current.src = '';
     }
+
+    // 3. Clear Internal State
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     sentenceBufferRef.current = '';
@@ -85,22 +97,24 @@ const App: React.FC = () => {
     nextExpectedIndexRef.current = 0;
     audioBufferMapRef.current = {};
 
+    // 4. Cancel the AI thinking process
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort(); // Cancel the LLM request
+      abortControllerRef.current.abort();
     }
   };
 
   // --- Input Logic: This starts the microphone ---
   const startRecording = async () => {
     try {
-      stopAllSpeech();
+      stopAllActivity(); // Reset everything before starting new capture
+      
       // Unlock mobile speakers for future playback
       if (audioRef.current) {
         audioRef.current.play().then(() => audioRef.current?.pause()).catch(() => {});
       }
       setError(null);
       
-      // Request mic access - exactly like using sounddevice or pyaudio
+      // Request mic access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -314,7 +328,7 @@ const App: React.FC = () => {
   };
 
   const startNewChat = () => {
-    stopAllSpeech();
+    stopAllActivity();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -322,7 +336,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    stopAllSpeech();
+    stopAllActivity();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -330,7 +344,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    stopAllSpeech();
+    stopAllActivity();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
