@@ -22,25 +22,49 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null); // To stop previous speech
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-    
-    const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    setIsMobile(mobileCheck);
 
-    // PRE-WARM APIs
+    const findBestMaleVoice = () => {
+      const voices = synthRef.current.getVoices();
+      
+      // LOG VOICES FOR DEBUGGING
+      // console.log("Device Voices:", voices.map(v => `${v.name} (${v.lang})`));
+
+      // AGGRESSIVE MALE VOICE HUNTER
+      const maleVoice = 
+        // 1. Android / Samsung Male IDs
+        voices.find(v => v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local') || (v.name.includes('Samsung') && v.name.toLowerCase().includes('male'))) ||
+        // 2. iOS / Safari Male IDs
+        voices.find(v => v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron')) ||
+        // 3. Desktop / Windows Male IDs
+        voices.find(v => v.name.includes('David') || v.name.includes('James')) ||
+        // 4. Keyword Search
+        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
+        // 5. English US Fallback
+        voices.find(v => v.lang.startsWith('en-US')) ||
+        voices[0];
+      
+      if (maleVoice) {
+        setSelectedVoice(maleVoice);
+      }
+    };
+
+    findBestMaleVoice();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = findBestMaleVoice;
+    }
+
+    // PRE-WARM Chat API
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
-    fetch('/api/speak', { method: 'OPTIONS' }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -51,39 +75,13 @@ const App: React.FC = () => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, isLoading]);
 
-  // MANDATORY SPEECH CANCELLATION
   const stopAllSpeech = () => {
-    // Stop PC native speech
     synthRef.current.cancel();
-    
-    // Stop Mobile Web Audio speech
-    if (activeSourceRef.current) {
-      try {
-        activeSourceRef.current.stop();
-        activeSourceRef.current.disconnect();
-      } catch (e) {}
-      activeSourceRef.current = null;
-    }
-  };
-
-  const unlockAudio = () => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
-    }
-    const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContextRef.current.destination);
-    source.start(0);
   };
 
   const startRecording = async () => {
     try {
-      stopAllSpeech(); // Kill any ongoing speech before listening
-      unlockAudio();
+      stopAllSpeech();
       setError(null);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -165,7 +163,6 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Clean speech trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -173,44 +170,17 @@ const App: React.FC = () => {
     }
   };
 
-  const speak = async (text: string) => {
-    stopAllSpeech(); // Kill any current sound before starting new one
-
-    if (isMobile) {
-      try {
-        const response = await fetch('/api/speak', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text }),
-        });
-        
-        const arrayBuffer = await response.arrayBuffer();
-        if (audioContextRef.current) {
-          const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-          const source = audioContextRef.current.createBufferSource();
-          source.buffer = audioBuffer;
-          source.connect(audioContextRef.current.destination);
-          
-          activeSourceRef.current = source;
-          source.start(0);
-          
-          source.onended = () => {
-            if (activeSourceRef.current === source) {
-              activeSourceRef.current = null;
-            }
-          };
-        }
-      } catch (e) {
-        console.error("Mobile speech failed", e);
-      }
-    } else {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const voices = synthRef.current.getVoices();
-      const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James')) || voices[0];
-      if (maleVoice) utterance.voice = maleVoice;
-      utterance.rate = 1.0;
-      synthRef.current.speak(utterance);
+  const speak = (text: string) => {
+    stopAllSpeech();
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
+    // High-quality natural tuning
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    synthRef.current.speak(utterance);
   };
 
   const startNewChat = () => {
