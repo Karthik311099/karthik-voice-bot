@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare, Trash2, Zap } from 'lucide-react';
+import { Mic, MicOff, User, Bot, Loader2, X, Menu, Plus, MessageSquare, Trash2 } from 'lucide-react';
 
 // --- Types ---
 interface Message {
@@ -22,33 +22,45 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
 
-  // WebRTC Refs
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const dcRef = useRef<RTCDataChannel | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-
-  // Existing Refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     const savedHistory = localStorage.getItem('karthik_chat_history');
     if (savedHistory) setHistory(JSON.parse(savedHistory));
-    
-    const mobileCheck = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    setIsMobile(mobileCheck);
 
-    if (mobileCheck) {
-      remoteAudioRef.current = new Audio();
-      remoteAudioRef.current.autoplay = true;
+    const findBestMaleVoice = () => {
+      const voices = synthRef.current.getVoices();
+      
+      // AGGRESSIVE MALE VOICE HUNTER (Android, iOS, PC)
+      const maleVoice = 
+        // 1. Android / Samsung Male IDs
+        voices.find(v => v.name.includes('en-us-x-sfg#male') || v.name.includes('en-us-x-iog-local') || (v.name.includes('Samsung') && v.name.toLowerCase().includes('male'))) ||
+        // 2. iOS / Safari Male IDs
+        voices.find(v => v.name.includes('Daniel') || v.name.includes('Arthur') || v.name.includes('Aaron')) ||
+        // 3. Desktop / Windows Male IDs
+        voices.find(v => v.name.includes('David') || v.name.includes('James')) ||
+        // 4. Keyword Search
+        voices.find(v => v.name.toLowerCase().includes('male') && v.lang.startsWith('en')) ||
+        // 5. English US Fallback
+        voices.find(v => v.lang.startsWith('en-US')) ||
+        voices[0];
+      
+      if (maleVoice) {
+        setSelectedVoice(maleVoice);
+      }
+    };
+
+    findBestMaleVoice();
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = findBestMaleVoice;
     }
 
-    // PRE-WARM APIs
+    // PRE-WARM Chat API
     fetch('/api/chat', { method: 'OPTIONS' }).catch(() => {});
   }, []);
 
@@ -62,121 +74,13 @@ const App: React.FC = () => {
 
   const stopAllSpeech = () => {
     synthRef.current.cancel();
-    if (pcRef.current) {
-      stopWebRTC();
-    }
   };
 
-  // --- WebRTC Logic (Mobile) ---
-  const initWebRTC = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // 1. Get Session Token
-      const tokenResponse = await fetch('/api/session', { method: 'POST' });
-      const sessionData = await tokenResponse.json();
-      
-      if (!sessionData.client_secret) {
-        throw new Error(sessionData.error || 'OpenAI Session Token could not be generated. Check your API Key.');
-      }
-
-      const EPHEMERAL_KEY = sessionData.client_secret.value;
-
-      // 2. Create Peer Connection
-      const pc = new RTCPeerConnection();
-      pcRef.current = pc;
-
-      // 3. Set up remote audio
-      pc.ontrack = (e) => {
-        if (remoteAudioRef.current) {
-          remoteAudioRef.current.srcObject = e.streams[0];
-        }
-      };
-
-      // 4. Add local audio (mic)
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = ms;
-      pc.addTrack(ms.getTracks()[0]);
-
-      // 5. Data Channel for transcripts
-      const dc = pc.createDataChannel('oai-events');
-      dcRef.current = dc;
-
-      dc.onmessage = (e) => {
-        const serverEvent = JSON.parse(e.data);
-        
-        // Capture transcripts to update UI
-        if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
-          const text = serverEvent.transcript;
-          if (text) appendMessage('user', text);
-        }
-        if (serverEvent.type === 'response.audio_transcript.done') {
-          const text = serverEvent.transcript;
-          if (text) appendMessage('assistant', text);
-        }
-      };
-
-      // 6. Offer/Answer Exchange
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
-      
-      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
-        method: "POST",
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${EPHEMERAL_KEY}`,
-          "Content-Type": "application/sdp",
-        },
-      });
-
-      const answer = {
-        type: "answer" as RTCSdpType,
-        sdp: await sdpResponse.text(),
-      };
-      await pc.setRemoteDescription(answer);
-
-      setIsListening(true);
-      setIsLoading(false);
-    } catch (err: any) {
-      setError('WebRTC Error: ' + err.message);
-      setIsLoading(false);
-    }
-  };
-
-  const stopWebRTC = () => {
-    pcRef.current?.close();
-    pcRef.current = null;
-    audioStreamRef.current?.getTracks().forEach(t => t.stop());
-    setIsListening(false);
-  };
-
-  const appendMessage = (role: 'user' | 'assistant', content: string) => {
-    setCurrentChat(prev => {
-      const newMessages: Message[] = [...prev, { role, content }];
-      // History sync logic
-      if (activeSessionId) {
-        setHistory(h => h.map(s => s.id === activeSessionId ? { ...s, messages: newMessages } : s));
-      } else {
-        // We'll let the next message or manual save handle session creation if needed
-      }
-      return newMessages;
-    });
-  };
-
-  // --- Legacy Recording Logic (PC) ---
   const startRecording = async () => {
-    if (isMobile) {
-      await initWebRTC();
-      return;
-    }
-
     try {
-      synthRef.current.cancel();
+      stopAllSpeech();
       setError(null);
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -198,10 +102,6 @@ const App: React.FC = () => {
   };
 
   const stopRecording = () => {
-    if (isMobile) {
-      stopWebRTC();
-      return;
-    }
     if (mediaRecorderRef.current && isListening) {
       mediaRecorderRef.current.stop();
       setIsListening(false);
@@ -268,12 +168,15 @@ const App: React.FC = () => {
   };
 
   const speak = (text: string) => {
-    // Only used for PC (since Mobile uses WebRTC audio tracks)
+    stopAllSpeech();
     const utterance = new SpeechSynthesisUtterance(text);
-    const voices = synthRef.current.getVoices();
-    const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James')) || voices[0];
-    if (maleVoice) utterance.voice = maleVoice;
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
+    }
+    // Professional high-quality tuning
     utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
     synthRef.current.speak(utterance);
   };
 
@@ -372,7 +275,7 @@ const App: React.FC = () => {
               <div className="flex justify-start">
                 <div className="bg-slate-800/50 p-4 rounded-2xl rounded-tl-none border border-slate-700 flex items-center space-x-3">
                   <Loader2 className="animate-spin text-indigo-400" size={16} />
-                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase italic">{isMobile ? 'Connecting Live...' : 'Thinking'}</span>
+                  <span className="text-xs text-slate-500 font-medium tracking-widest uppercase italic">Thinking</span>
                 </div>
               </div>
             )}
@@ -386,26 +289,20 @@ const App: React.FC = () => {
             <div className="w-full max-w-md p-4 bg-slate-900 border border-slate-800 rounded-xl mb-6 text-center animate-in slide-in-from-bottom-2">
                <div className="flex items-center justify-center space-x-3 mb-2">
                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                 <p className="text-xs text-red-500 font-bold uppercase tracking-widest">{isMobile ? 'Live Conversation Active' : 'Recording Audio'}</p>
+                 <p className="text-xs text-red-500 font-bold uppercase tracking-widest">Recording Audio</p>
                </div>
-               <p className="text-sm text-slate-400 italic leading-relaxed">
-                 {isMobile ? 'Talk naturally. You can interrupt me anytime!' : "Speak naturally. Tap the button when finished."}
-               </p>
+               <p className="text-sm text-slate-400 italic leading-relaxed">Speak naturally. Tap the button when finished.</p>
             </div>
           )}
 
           <button onClick={isListening ? stopRecording : startRecording} disabled={isLoading} className={`w-20 h-20 rounded-full flex items-center justify-center transition-all transform active:scale-90 ${isListening ? 'bg-red-500 shadow-[0_0_40px_rgba(239,68,68,0.4)]' : 'bg-indigo-600 hover:bg-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.3)]'}`}>
-            {isListening ? (
-              isMobile ? <Zap size={32} className="text-white animate-pulse" /> : <MicOff size={32} className="text-white" />
-            ) : (
-              <Mic size={32} className="text-white" />
-            )}
+            {isListening ? <MicOff size={32} className="text-white" /> : <Mic size={32} className="text-white" />}
           </button>
           
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mt-4">
-            {isListening ? (isMobile ? 'Tap to end session' : 'Tap to finish') : 'Tap to start'}
+            {isListening ? 'Tap to finish' : 'Tap to speak'}
           </p>
-          {error && <p className="text-[10px] text-red-500 mt-2 font-bold">{error}</p>}
+          {error && <p className="text-[10px] text-red-400 mt-2 font-bold">{error}</p>}
         </div>
       </div>
     </div>
