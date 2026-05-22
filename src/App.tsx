@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const activeSourceRef = useRef<AudioBufferSourceNode | null>(null); // To stop previous speech
   const synthRef = useRef<SpeechSynthesis>(window.speechSynthesis);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
@@ -50,7 +51,21 @@ const App: React.FC = () => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [currentChat, isLoading]);
 
-  // UNLOCK AUDIO SYSTEM (Crucial for Mobile)
+  // MANDATORY SPEECH CANCELLATION
+  const stopAllSpeech = () => {
+    // Stop PC native speech
+    synthRef.current.cancel();
+    
+    // Stop Mobile Web Audio speech
+    if (activeSourceRef.current) {
+      try {
+        activeSourceRef.current.stop();
+        activeSourceRef.current.disconnect();
+      } catch (e) {}
+      activeSourceRef.current = null;
+    }
+  };
+
   const unlockAudio = () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -58,7 +73,6 @@ const App: React.FC = () => {
     if (audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume();
     }
-    // Play a silent buffer to fully prime the system
     const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
     const source = audioContextRef.current.createBufferSource();
     source.buffer = buffer;
@@ -68,8 +82,8 @@ const App: React.FC = () => {
 
   const startRecording = async () => {
     try {
-      unlockAudio(); // Trigger on user gesture
-      synthRef.current.cancel();
+      stopAllSpeech(); // Kill any ongoing speech before listening
+      unlockAudio();
       setError(null);
       
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -151,7 +165,7 @@ const App: React.FC = () => {
         setActiveSessionId(newSession.id);
       }
       
-      // Professional Voice Trigger
+      // Clean speech trigger
       speak(botMessage);
     } catch (err: any) {
       setError('AI Error: ' + err.message);
@@ -160,8 +174,9 @@ const App: React.FC = () => {
   };
 
   const speak = async (text: string) => {
+    stopAllSpeech(); // Kill any current sound before starting new one
+
     if (isMobile) {
-      // MOBILE: Professional Web Audio API Playback
       try {
         const response = await fetch('/api/speak', {
           method: 'POST',
@@ -175,14 +190,20 @@ const App: React.FC = () => {
           const source = audioContextRef.current.createBufferSource();
           source.buffer = audioBuffer;
           source.connect(audioContextRef.current.destination);
+          
+          activeSourceRef.current = source;
           source.start(0);
+          
+          source.onended = () => {
+            if (activeSourceRef.current === source) {
+              activeSourceRef.current = null;
+            }
+          };
         }
       } catch (e) {
-        console.error("Mobile WebAudio error", e);
+        console.error("Mobile speech failed", e);
       }
     } else {
-      // PC/LAPTOP: Native zero-delay
-      synthRef.current.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       const voices = synthRef.current.getVoices();
       const maleVoice = voices.find(v => v.name.includes('David') || v.name.includes('James')) || voices[0];
@@ -193,7 +214,7 @@ const App: React.FC = () => {
   };
 
   const startNewChat = () => {
-    synthRef.current.cancel();
+    stopAllSpeech();
     setCurrentChat([]);
     setActiveSessionId(null);
     setIsSidebarOpen(false);
@@ -201,7 +222,7 @@ const App: React.FC = () => {
   };
 
   const loadSession = (session: ChatSession) => {
-    synthRef.current.cancel();
+    stopAllSpeech();
     setCurrentChat(session.messages);
     setActiveSessionId(session.id);
     setIsSidebarOpen(false);
@@ -209,7 +230,7 @@ const App: React.FC = () => {
 
   const deleteSession = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    synthRef.current.cancel();
+    stopAllSpeech();
     setHistory(history.filter(s => s.id !== id));
     if (activeSessionId === id) {
       setCurrentChat([]);
